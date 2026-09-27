@@ -1,0 +1,684 @@
+// Popup UI Logic — handles extraction, DeepSeek AI, and instant Offline Studio saving
+document.addEventListener('DOMContentLoaded', () => {
+  // ===== DOM References =====
+  const tabExtractBtn = document.getElementById('tab-extract-btn');
+  const tabLibraryBtn = document.getElementById('tab-library-btn');
+  const tabSettingsBtn = document.getElementById('tab-settings-btn');
+  const tabExtract = document.getElementById('tab-extract');
+  const tabLibrary = document.getElementById('tab-library');
+  const tabSettings = document.getElementById('tab-settings');
+
+  const libraryCount = document.getElementById('library-count');
+  const libraryList = document.getElementById('library-list');
+  const libraryEmpty = document.getElementById('library-empty');
+  const btnClearLibrary = document.getElementById('btn-clear-library');
+  const btnOpenStudioTop = document.getElementById('btn-open-studio-top');
+
+  const douyinInput = document.getElementById('douyin-input');
+  const btnParseLink = document.getElementById('btn-parse-link');
+  const btnGrabActiveTab = document.getElementById('btn-grab-active-tab');
+
+  const statusBar = document.getElementById('status-bar');
+  const statusText = document.getElementById('status-text');
+
+  const reviewArea = document.getElementById('review-area');
+  const metaAuthorAvatar = document.getElementById('meta-author-avatar');
+  const metaAuthorName = document.getElementById('meta-author-name');
+  const metaBadgeType = document.getElementById('meta-badge-type');
+  const metaPostTime = document.getElementById('meta-post-time');
+
+  const mediaCountLabel = document.getElementById('media-count-label');
+  const imageGrid = document.getElementById('image-grid');
+  const videoPreviewWrapper = document.getElementById('video-preview-wrapper');
+  const videoPreview = document.getElementById('video-preview');
+  const btnSelectAll = document.getElementById('btn-select-all');
+  const btnDeselectAll = document.getElementById('btn-deselect-all');
+
+  const originalCaptionEl = document.getElementById('original-caption');
+  const englishCaptionEl = document.getElementById('english-caption');
+  const btnDeepseekTranslate = document.getElementById('btn-deepseek-translate');
+  const btnCopyOriginal = document.getElementById('btn-copy-original');
+  const btnCopyEnglish = document.getElementById('btn-copy-english');
+
+  const btnSaveAndView = document.getElementById('btn-save-and-view');
+  const btnOpenStudio = document.getElementById('btn-open-studio');
+  const btnSaveOfflinePackage = document.getElementById('btn-save-offline-package');
+  const btnPrepareFacebook = document.getElementById('btn-prepare-facebook');
+  const fbInfoNote = document.getElementById('fb-info-note');
+
+  const settingDeepseekKey = document.getElementById('setting-deepseek-key');
+  const settingDeepseekModel = document.getElementById('setting-deepseek-model');
+  const settingSystemPrompt = document.getElementById('setting-system-prompt');
+  const btnSaveSettings = document.getElementById('btn-save-settings');
+  const saveStatus = document.getElementById('save-status');
+
+  // ===== State =====
+  let currentMediaData = null;
+  let selectedImageUrls = [];
+
+  // ===== TABS =====
+  tabExtractBtn.addEventListener('click', () => switchTab('tab-extract'));
+  tabLibraryBtn.addEventListener('click', () => {
+    switchTab('tab-library');
+    loadLibrary();
+  });
+  tabSettingsBtn.addEventListener('click', () => switchTab('tab-settings'));
+
+  function switchTab(target) {
+    tabExtractBtn.classList.toggle('active', target === 'tab-extract');
+    tabLibraryBtn.classList.toggle('active', target === 'tab-library');
+    tabSettingsBtn.classList.toggle('active', target === 'tab-settings');
+
+    tabExtract.classList.toggle('active', target === 'tab-extract');
+    tabLibrary.classList.toggle('active', target === 'tab-library');
+    tabSettings.classList.toggle('active', target === 'tab-settings');
+  }
+
+  // Open full studio page
+  btnOpenStudio.addEventListener('click', () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL('viewer/viewer.html') });
+  });
+  btnOpenStudioTop.addEventListener('click', () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL('viewer/viewer.html') });
+  });
+
+  // ===== SETTINGS & PERSISTENCE =====
+  async function loadSettings() {
+    chrome.storage.local.get(
+      ['deepseekApiKey', 'deepseekModel', 'systemPromptTemplate', 'currentExtractedData', 'lastExtractedAt'],
+      (res) => {
+        if (res.deepseekApiKey) settingDeepseekKey.value = res.deepseekApiKey;
+        if (res.deepseekModel) settingDeepseekModel.value = res.deepseekModel;
+        if (res.systemPromptTemplate) {
+          settingSystemPrompt.value = res.systemPromptTemplate;
+        } else {
+          settingSystemPrompt.value = getDefaultPrompt();
+        }
+
+        // Auto-load recently extracted data (within last 10 min)
+        if (res.currentExtractedData && res.currentExtractedData.success && res.lastExtractedAt) {
+          const age = Date.now() - res.lastExtractedAt;
+          if (age < 10 * 60 * 1000) {
+            currentMediaData = res.currentExtractedData;
+            displayExtractedData(res.currentExtractedData);
+          }
+        }
+      }
+    );
+
+    // Update library count from IndexedDB
+    try {
+      const posts = await DouyinDB.getAllPosts();
+      libraryCount.innerText = posts.length;
+    } catch (e) {}
+  }
+  loadSettings();
+
+  function getDefaultPrompt() {
+    return `You are an expert social media manager for Facebook Travel and Lifestyle Fanpages.
+Translate and creatively adapt this Chinese Douyin caption into an engaging English Facebook post.
+Format:
+1. 🌟 Catchy Hook with emojis
+2. 📖 Story & Scenic Highlights (descriptive, wanderlust vibe)
+3. 📍 Key Location / Travel Tips
+4. ✈️ Call to Action (e.g., Save this for your trip / Tag a friend)
+5. 🏷️ 6-8 Viral English Hashtags (replace Chinese hashtags with high-volume English travel tags).
+Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
+  }
+
+  btnSaveSettings.addEventListener('click', () => {
+    chrome.storage.local.set({
+      deepseekApiKey: settingDeepseekKey.value.trim(),
+      deepseekModel: settingDeepseekModel.value,
+      systemPromptTemplate: settingSystemPrompt.value.trim()
+    }, () => {
+      saveStatus.innerText = '✅ Đã lưu cấu hình thành công!';
+      setTimeout(() => { saveStatus.innerText = ''; }, 2500);
+    });
+  });
+
+  // ===== STATUS BAR =====
+  function showStatus(msg) {
+    statusText.innerText = msg;
+    statusBar.classList.remove('hidden');
+  }
+  function hideStatus() {
+    statusBar.classList.add('hidden');
+  }
+
+  // ===== EXTRACT FROM ACTIVE DOUYIN TAB =====
+  btnGrabActiveTab.addEventListener('click', () => {
+    showStatus('Đang quét nội dung từ tab Douyin hiện tại...');
+
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const activeTab = tabs[0];
+      if (!activeTab || !activeTab.url || !activeTab.url.includes('douyin.com')) {
+        hideStatus();
+        alert('Tab hiện tại không phải trang douyin.com.\nHãy mở bài viết trên Douyin trước!');
+        return;
+      }
+
+      chrome.tabs.sendMessage(activeTab.id, { type: 'GET_CURRENT_PAGE_MEDIA' }, (res) => {
+        hideStatus();
+        if (chrome.runtime.lastError) {
+          alert('Không thể kết nối với trang Douyin. Vui lòng F5 tải lại trang Douyin rồi bấm lại.');
+          return;
+        }
+        if (res && res.success) {
+          currentMediaData = res;
+          chrome.storage.local.set({
+            currentExtractedData: res,
+            lastExtractedAt: Date.now()
+          });
+          displayExtractedData(res);
+        } else {
+          alert('Không tìm thấy ảnh/video. Hãy mở đúng trang chi tiết bài viết (click vào bài note hoặc video).');
+        }
+      });
+    });
+  });
+
+  // ===== EXTRACT FROM PASTED LINK =====
+  btnParseLink.addEventListener('click', () => {
+    const input = douyinInput.value.trim();
+    if (!input) {
+      alert('Vui lòng dán link hoặc đoạn chia sẻ Douyin.');
+      return;
+    }
+
+    const urlMatch = input.match(/https?:\/\/\S+/);
+    if (!urlMatch) {
+      alert('Không tìm thấy liên kết hợp lệ trong nội dung đã dán.');
+      return;
+    }
+
+    showStatus('Đang mở bài viết trên tab mới để trích xuất...');
+    btnParseLink.disabled = true;
+
+    chrome.tabs.create({ url: urlMatch[0], active: true }, (newTab) => {
+      let retries = 0;
+      const maxRetries = 10;
+
+      const checkReady = () => {
+        retries++;
+        if (retries > maxRetries) {
+          hideStatus();
+          btnParseLink.disabled = false;
+          alert('Trang Douyin tải quá lâu. Hãy chuyển sang tab vừa mở và bấm "Tab hiện tại".');
+          return;
+        }
+
+        chrome.tabs.sendMessage(newTab.id, { type: 'GET_CURRENT_PAGE_MEDIA' }, (res) => {
+          if (chrome.runtime.lastError || !res || !res.success) {
+            setTimeout(checkReady, 2000);
+          } else {
+            hideStatus();
+            btnParseLink.disabled = false;
+            currentMediaData = res;
+            chrome.storage.local.set({
+              currentExtractedData: res,
+              lastExtractedAt: Date.now()
+            });
+            displayExtractedData(res);
+          }
+        });
+      };
+
+      setTimeout(checkReady, 3000);
+    });
+  });
+
+  // ===== RENDER EXTRACTED DATA =====
+  function displayExtractedData(data) {
+    reviewArea.classList.remove('hidden');
+
+    // Author & metadata
+    metaAuthorName.innerText = 'Kênh: ' + (data.author || 'Tác giả Douyin');
+    metaPostTime.innerText = '🕒 Đăng lúc: ' + (data.createTime || 'Hôm nay');
+    metaBadgeType.innerText = data.type === 'note' ? '图集 / Note' : 'Video';
+    if (data.avatar) {
+      metaAuthorAvatar.src = data.avatar;
+      metaAuthorAvatar.style.display = 'block';
+    } else {
+      metaAuthorAvatar.style.display = 'none';
+    }
+
+    // Captions
+    originalCaptionEl.value = data.desc || data.title || '';
+    englishCaptionEl.value = data.englishCaption || '';
+
+    // Image grid
+    imageGrid.innerHTML = '';
+    selectedImageUrls = [];
+
+    if (data.images && data.images.length > 0) {
+      mediaCountLabel.innerText = `Danh sách ảnh HD (${data.images.length} ảnh)`;
+      videoPreviewWrapper.classList.add('hidden');
+      imageGrid.parentElement.classList.remove('hidden');
+
+      selectedImageUrls = [...data.images];
+
+      data.images.forEach((imgUrl, idx) => {
+        const item = document.createElement('div');
+        item.className = 'image-item selected';
+
+        const img = document.createElement('img');
+        img.loading = 'lazy';
+        img.alt = `Ảnh ${idx + 1}`;
+        img.src = imgUrl;
+
+        let hasRetried = false;
+        img.onerror = () => {
+          if (!hasRetried) {
+            hasRetried = true;
+            chrome.runtime.sendMessage({ type: 'FETCH_IMAGE_BASE64', url: imgUrl }, (res) => {
+              if (res && res.success && res.base64) {
+                img.src = `data:${res.type || 'image/jpeg'};base64,${res.base64}`;
+                img.style.opacity = '1';
+              } else {
+                img.style.opacity = '0.3';
+                img.alt = '⚠ Lỗi tải';
+              }
+            });
+          } else {
+            img.style.opacity = '0.3';
+            img.alt = '⚠ Lỗi tải';
+          }
+        };
+
+        const chk = document.createElement('input');
+        chk.type = 'checkbox';
+        chk.className = 'image-checkbox';
+        chk.checked = true;
+
+        const badge = document.createElement('span');
+        badge.className = 'image-index';
+        badge.innerText = `#${idx + 1}`;
+
+        chk.addEventListener('change', () => {
+          if (chk.checked) {
+            item.classList.add('selected');
+            if (!selectedImageUrls.includes(imgUrl)) selectedImageUrls.push(imgUrl);
+          } else {
+            item.classList.remove('selected');
+            selectedImageUrls = selectedImageUrls.filter(u => u !== imgUrl);
+          }
+          mediaCountLabel.innerText = `Danh sách ảnh HD (Đã chọn ${selectedImageUrls.length}/${data.images.length})`;
+        });
+
+        item.appendChild(img);
+        item.appendChild(chk);
+        item.appendChild(badge);
+        imageGrid.appendChild(item);
+      });
+    } else if (data.videoUrl) {
+      mediaCountLabel.innerText = 'Video không watermark';
+      imageGrid.parentElement.classList.add('hidden');
+      videoPreviewWrapper.classList.remove('hidden');
+      videoPreview.src = data.videoUrl;
+    }
+
+    // Auto-trigger translation if API key is set and no English translation yet
+    if (!englishCaptionEl.value) {
+      chrome.storage.local.get(['deepseekApiKey'], (res) => {
+        if (res.deepseekApiKey && originalCaptionEl.value) {
+          btnDeepseekTranslate.click();
+        }
+      });
+    }
+  }
+
+  // ===== SELECT / DESELECT ALL =====
+  btnSelectAll.addEventListener('click', () => {
+    document.querySelectorAll('.image-checkbox').forEach(c => {
+      c.checked = true;
+      c.closest('.image-item').classList.add('selected');
+    });
+    if (currentMediaData && currentMediaData.images) {
+      selectedImageUrls = [...currentMediaData.images];
+      mediaCountLabel.innerText = `Danh sách ảnh HD (${selectedImageUrls.length} ảnh)`;
+    }
+  });
+
+  btnDeselectAll.addEventListener('click', () => {
+    document.querySelectorAll('.image-checkbox').forEach(c => {
+      c.checked = false;
+      c.closest('.image-item').classList.remove('selected');
+    });
+    selectedImageUrls = [];
+    mediaCountLabel.innerText = `Danh sách ảnh HD (Đã chọn 0)`;
+  });
+
+  // ===== DEEPSEEK TRANSLATION =====
+  btnDeepseekTranslate.addEventListener('click', () => {
+    const rawText = originalCaptionEl.value.trim();
+    if (!rawText) { alert('Chưa có caption để dịch.'); return; }
+
+    chrome.storage.local.get(['deepseekApiKey', 'deepseekModel', 'systemPromptTemplate'], (settings) => {
+      if (!settings.deepseekApiKey) {
+        alert('Vui lòng cấu hình DeepSeek API Key ở tab "Cài đặt API" trước!');
+        switchTab('tab-settings');
+        return;
+      }
+
+      showStatus('✨ DeepSeek AI đang sáng tạo bài đăng tiếng Anh...');
+      btnDeepseekTranslate.disabled = true;
+
+      chrome.runtime.sendMessage({
+        type: 'CALL_DEEPSEEK_TRANSLATION',
+        payload: {
+          apiKey: settings.deepseekApiKey,
+          model: settings.deepseekModel || 'deepseek-chat',
+          systemPrompt: settings.systemPromptTemplate || getDefaultPrompt(),
+          originalText: rawText
+        }
+      }, (res) => {
+        btnDeepseekTranslate.disabled = false;
+        hideStatus();
+
+        if (res && res.success && res.translation) {
+          englishCaptionEl.value = res.translation;
+          if (currentMediaData) {
+            currentMediaData.englishCaption = res.translation;
+            chrome.storage.local.set({ currentExtractedData: currentMediaData });
+          }
+        } else {
+          alert('Lỗi DeepSeek: ' + (res?.error || 'Không nhận được kết quả dịch.'));
+        }
+      });
+    });
+  });
+
+  // ===== COPY BUTTONS =====
+  btnCopyOriginal.addEventListener('click', () => {
+    navigator.clipboard.writeText(originalCaptionEl.value);
+    btnCopyOriginal.innerText = '✅ Đã copy!';
+    setTimeout(() => { btnCopyOriginal.innerText = 'Copy'; }, 1500);
+  });
+
+  btnCopyEnglish.addEventListener('click', () => {
+    navigator.clipboard.writeText(englishCaptionEl.value);
+    btnCopyEnglish.innerText = '✅ Đã copy!';
+    setTimeout(() => { btnCopyEnglish.innerText = 'Copy'; }, 1500);
+  });
+
+  // ===== HELPER: CONVERT BLOB TO CLEAN JPG VIA CANVAS =====
+  // Strips all EXIF, tracking headers & Douyin watermark metadata
+  function convertBlobToCleanJpg(blob, quality = 0.95) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(blob);
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.naturalWidth || img.width;
+          canvas.height = img.naturalHeight || img.height;
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0);
+          canvas.toBlob((jpgBlob) => {
+            if (jpgBlob) resolve(jpgBlob);
+            else reject(new Error('Lỗi xuất canvas sang JPG'));
+          }, 'image/jpeg', quality);
+        } catch (err) {
+          reject(err);
+        }
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error('Lỗi nạp ảnh vào canvas'));
+      };
+      img.src = url;
+    });
+  }
+
+  function base64ToBlob(base64, type = 'image/jpeg') {
+    const binary = atob(base64);
+    const len = binary.length;
+    const buffer = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      buffer[i] = binary.charCodeAt(i);
+    }
+    return new Blob([buffer], { type: type });
+  }
+
+  function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  // ===== CORE FUNCTION: CONVERT ALL IMAGES TO CLEAN JPG & SAVE TO INDEXEDDB =====
+  async function processAndSavePost() {
+    if (!currentMediaData) {
+      throw new Error('Chưa có dữ liệu bài viết.');
+    }
+    if (currentMediaData.type === 'note' && selectedImageUrls.length === 0) {
+      throw new Error('Vui lòng chọn ít nhất 1 ảnh.');
+    }
+
+    const postId = currentMediaData.itemId || String(Date.now());
+    const cleanImages = [];
+
+    // 1. Process selected images
+    for (let i = 0; i < selectedImageUrls.length; i++) {
+      const url = selectedImageUrls[i];
+      showStatus(`Đang chuyển đổi ảnh ${i + 1}/${selectedImageUrls.length} sang JPG sạch...`);
+
+      const res = await new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage({ type: 'FETCH_IMAGE_BASE64', url: url }, (r) => {
+          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+          else if (r && r.success) resolve(r);
+          else reject(new Error(r?.error || 'Lỗi tải ảnh'));
+        });
+      });
+
+      const rawBlob = base64ToBlob(res.base64, res.type);
+      const cleanJpgBlob = await convertBlobToCleanJpg(rawBlob, 0.95);
+      const cleanDataUrl = await blobToDataUrl(cleanJpgBlob);
+
+      cleanImages.push({
+        filename: `photo_${String(i + 1).padStart(2, '0')}.jpg`,
+        dataUrl: cleanDataUrl
+      });
+    }
+
+    // 2. Process avatar if present
+    let avatarDataUrl = '';
+    if (currentMediaData.avatar) {
+      try {
+        const avatarRes = await new Promise((resolve, reject) => {
+          chrome.runtime.sendMessage({ type: 'FETCH_IMAGE_BASE64', url: currentMediaData.avatar }, (r) => {
+            if (r && r.success) resolve(r);
+            else reject(new Error('Avatar error'));
+          });
+        });
+        const rawAvatarBlob = base64ToBlob(avatarRes.base64, avatarRes.type);
+        const cleanAvatarBlob = await convertBlobToCleanJpg(rawAvatarBlob, 0.9);
+        avatarDataUrl = await blobToDataUrl(cleanAvatarBlob);
+      } catch (e) {
+        console.warn('Không tải được avatar:', e);
+      }
+    }
+
+    // 3. Construct post object
+    const postRecord = {
+      id: postId,
+      author: currentMediaData.author || 'Tác giả Douyin',
+      authorId: currentMediaData.authorId || '',
+      avatar: avatarDataUrl || currentMediaData.avatar || '',
+      createTime: currentMediaData.createTime || new Date().toLocaleString('vi-VN'),
+      createTimestamp: currentMediaData.createTimestamp || 0,
+      desc: originalCaptionEl.value || currentMediaData.desc || '',
+      englishCaption: englishCaptionEl.value || currentMediaData.englishCaption || '',
+      sourceUrl: currentMediaData.url || '',
+      images: cleanImages,
+      thumbUrl: cleanImages.length > 0 ? cleanImages[0].dataUrl : '',
+      status: 'pending',
+      savedAt: Date.now()
+    };
+
+    // 4. Save to IndexedDB
+    showStatus('Đang lưu vào kho Offline...');
+    await DouyinDB.savePost(postRecord);
+
+    const posts = await DouyinDB.getAllPosts();
+    libraryCount.innerText = posts.length;
+
+    return postRecord;
+  }
+
+  // ===== ACTION 1: SAVE & OPEN OFFLINE TAB DIRECTLY (NO ZIP / NO DOWNLOAD NEEDED) =====
+  btnSaveAndView.addEventListener('click', async () => {
+    btnSaveAndView.disabled = true;
+    showStatus('Đang lưu và chuẩn bị mở trang xem offline...');
+
+    try {
+      const saved = await processAndSavePost();
+      hideStatus();
+      btnSaveAndView.disabled = false;
+
+      // OPEN FULL VIEWER TAB DIRECTLY IN CHROME!
+      chrome.tabs.create({
+        url: chrome.runtime.getURL(`viewer/viewer.html?id=${saved.id}`)
+      });
+    } catch (err) {
+      console.error(err);
+      hideStatus();
+      btnSaveAndView.disabled = false;
+      alert('Lỗi: ' + err.message);
+    }
+  });
+
+  // ===== ACTION 2: BACKUP ZIP DOWNLOAD (OPTIONAL) =====
+  btnSaveOfflinePackage.addEventListener('click', async () => {
+    btnSaveOfflinePackage.disabled = true;
+    showStatus('Đang tạo gói ZIP để tải về máy...');
+
+    try {
+      const saved = await processAndSavePost();
+      showStatus('Đang nén file ZIP...');
+
+      const zip = new JSZip();
+      const imgFolder = zip.folder('images');
+      for (const item of saved.images) {
+        const base64Data = item.dataUrl.split(',')[1];
+        imgFolder.file(item.filename, base64Data, { base64: true });
+      }
+
+      const txt = [
+        '========================================',
+        '  FACEBOOK POST (ENGLISH)',
+        '========================================',
+        '',
+        saved.englishCaption || '',
+        '',
+        '',
+        '========================================',
+        '  ORIGINAL CHINESE CAPTION',
+        '========================================',
+        '',
+        saved.desc || '',
+        '',
+        `Kênh: ${saved.author}`,
+        `Thời gian: ${saved.createTime}`,
+        `Nguồn: ${saved.sourceUrl}`
+      ].join('\n');
+      zip.file('caption.txt', txt);
+
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const dlUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = dlUrl;
+      const safeTitle = (saved.desc || 'douyin_post').replace(/[^a-zA-Z0-9_\u4e00-\u9fa5]/g, '_').slice(0, 30);
+      a.download = `[Offline]_${safeTitle}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(dlUrl);
+
+      hideStatus();
+      btnSaveOfflinePackage.disabled = false;
+      alert('✅ Đã tải file ZIP về máy thành công!');
+    } catch (e) {
+      hideStatus();
+      btnSaveOfflinePackage.disabled = false;
+      alert('Lỗi: ' + e.message);
+    }
+  });
+
+  // ===== FACEBOOK NOTE TOGGLE =====
+  btnPrepareFacebook.addEventListener('click', () => {
+    fbInfoNote.classList.toggle('hidden');
+  });
+
+  // ===== OFFLINE LIBRARY FUNCTIONS =====
+  async function loadLibrary() {
+    try {
+      const posts = await DouyinDB.getAllPosts();
+      libraryCount.innerText = posts.length;
+      libraryList.innerHTML = '';
+
+      if (posts.length === 0) {
+        libraryEmpty.classList.remove('hidden');
+        return;
+      }
+
+      libraryEmpty.classList.add('hidden');
+
+      posts.forEach((post) => {
+        const item = document.createElement('div');
+        item.className = 'library-item';
+
+        const thumbUrl = (post.images && post.images.length > 0 && post.images[0].dataUrl) ||
+                         post.thumbUrl || post.avatar || '../icons/icon48.png';
+
+        item.innerHTML = `
+          <img class="library-thumb" src="${thumbUrl}" alt="Thumbnail" />
+          <div class="library-info">
+            <div class="library-title" title="${escapeHtml(post.desc || '')}">${escapeHtml(post.desc || '(Không có tiêu đề)')}</div>
+            <div class="library-meta">@${escapeHtml(post.author || 'Tác giả')} • 🕒 ${post.createTime || ''} • ${(post.images || []).length} ảnh</div>
+            <div class="library-actions">
+              <button class="btn-sm-action btn-open-item">🖥️ Mở xem</button>
+              <button class="btn-sm-action text-danger btn-del-item">🗑️ Xóa</button>
+            </div>
+          </div>
+        `;
+
+        item.querySelector('.btn-open-item').addEventListener('click', () => {
+          chrome.tabs.create({ url: chrome.runtime.getURL(`viewer/viewer.html?id=${post.id}`) });
+        });
+
+        item.querySelector('.btn-del-item').addEventListener('click', async () => {
+          await DouyinDB.deletePost(post.id);
+          loadLibrary();
+        });
+
+        libraryList.appendChild(item);
+      });
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  btnClearLibrary.addEventListener('click', async () => {
+    if (confirm('Bạn có chắc chắn muốn xóa tất cả các bài viết trong kho offline không?')) {
+      await DouyinDB.clearAll();
+      loadLibrary();
+    }
+  });
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;')
+              .replace(/'/g, '&#039;');
+  }
+});

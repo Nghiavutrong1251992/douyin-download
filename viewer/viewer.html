@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Douyin Offline Studio — Quản lý bài đăng Facebook</title>
+  <link rel="stylesheet" href="viewer.css">
+  <script src="../lib/jszip.min.js"></script>
+  <script src="../lib/db.js"></script>
+</head>
+<body>
+  <div class="studio-app">
+    <!-- Left Sidebar: Saved Posts Navigation -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="brand">
+          <div class="logo-box">
+            <svg viewBox="0 0 24 24" class="logo-svg"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+          </div>
+          <div>
+            <h1 class="brand-title">Offline Studio</h1>
+            <span class="brand-sub">Quản lý bài Douyin & Post FB</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Search & Filters -->
+      <div class="sidebar-tools">
+        <input type="text" id="search-input" class="search-input" placeholder="🔍 Tìm kiếm bài viết..." />
+        <div class="filter-chips">
+          <button class="filter-chip active" data-filter="all">Tất cả (<span id="count-all">0</span>)</button>
+          <button class="filter-chip" data-filter="pending">Chưa đăng (<span id="count-pending">0</span>)</button>
+          <button class="filter-chip" data-filter="published">Đã đăng (<span id="count-published">0</span>)</button>
+        </div>
+      </div>
+
+      <!-- Post List -->
+      <div id="posts-list" class="posts-list">
+        <!-- Dynamically injected post items -->
+      </div>
+
+      <div id="empty-sidebar" class="empty-sidebar hidden">
+        <p>Chưa có bài viết nào được lưu.</p>
+        <small>Hãy mở bài viết trên Douyin và bấm "Lưu & Xem Offline" từ Extension.</small>
+      </div>
+
+      <div class="sidebar-footer">
+        <button id="btn-clear-all" class="btn-text-danger">Xóa tất cả kho lưu trữ</button>
+      </div>
+    </aside>
+
+    <!-- Main Content Area: Selected Post Details -->
+    <main class="main-content">
+      <!-- Empty State when no post selected -->
+      <div id="empty-state" class="empty-state">
+        <div class="empty-art">📱</div>
+        <h2>Chọn một bài viết từ danh sách bên trái</h2>
+        <p>Toàn bộ nội dung bài viết và các ảnh JPG đã xóa sạch nguồn gốc Douyin được lưu sẵn tại đây. Bạn có thể kiểm tra offline, chỉnh sửa và đăng lên Facebook bất cứ lúc nào!</p>
+      </div>
+
+      <!-- Post View Container (visible when a post is active) -->
+      <div id="post-view" class="post-view hidden">
+        <!-- Post Header -->
+        <header class="post-header-card">
+          <div class="author-block">
+            <img id="view-avatar" class="author-avatar" src="" alt="Avatar" />
+            <div>
+              <div class="author-name-row">
+                <h2 id="view-author" class="author-name">Tác giả</h2>
+                <span id="view-badge-status" class="badge-status status-pending">Chưa đăng FB</span>
+              </div>
+              <div class="author-meta-row">
+                <span id="view-time">🕒 Đăng lúc: --</span>
+                <span id="view-img-count">🖼️ 0 ảnh JPG</span>
+                <a id="view-origin-link" href="#" target="_blank" class="origin-link">🔗 Xem link Douyin gốc</a>
+              </div>
+            </div>
+          </div>
+
+          <div class="header-actions">
+            <label class="toggle-switch-label" title="Đánh dấu trạng thái bài viết">
+              <input type="checkbox" id="check-published" class="toggle-checkbox" />
+              <span class="toggle-text">Đã đăng lên Facebook</span>
+            </label>
+            <button id="btn-export-zip" class="btn btn-secondary-outline">
+              <svg viewBox="0 0 24 24" class="btn-icon"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+              <span>Xuất ZIP ra máy</span>
+            </button>
+            <button id="btn-delete-post" class="btn btn-danger-icon" title="Xóa bài viết này">
+              <svg viewBox="0 0 24 24" class="btn-icon"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+            </button>
+          </div>
+        </header>
+
+        <!-- Captions Section -->
+        <section class="captions-grid">
+          <!-- English Facebook Post -->
+          <div class="card caption-card">
+            <div class="card-head">
+              <div class="card-title-flex">
+                <span class="badge badge-fb">Bài đăng Facebook (Tiếng Anh - DeepSeek AI)</span>
+                <span id="fb-char-count" class="char-count">0 ký tự</span>
+              </div>
+              <button id="btn-copy-fb" class="btn btn-primary-blue">
+                <svg viewBox="0 0 24 24" class="btn-icon"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+                <span>📋 Copy bài đăng Facebook</span>
+              </button>
+            </div>
+            <textarea id="view-eng-caption" class="caption-editor" rows="8" placeholder="Nội dung bài đăng tiếng Anh... Bạn có thể chỉnh sửa tự do tại đây."></textarea>
+          </div>
+
+          <!-- Chinese Caption -->
+          <div class="card caption-card">
+            <div class="card-head">
+              <span class="badge badge-zh">Caption gốc (Tiếng Trung)</span>
+              <button id="btn-copy-zh" class="btn btn-secondary-copy">
+                <span>Copy gốc</span>
+              </button>
+            </div>
+            <textarea id="view-zh-caption" class="caption-editor readonly" rows="8" readonly></textarea>
+          </div>
+        </section>
+
+        <!-- Clean JPG Images Gallery -->
+        <section class="gallery-section">
+          <div class="gallery-head">
+            <div>
+              <h3 class="section-heading">Bộ sưu tập ảnh (.JPG chuẩn - Đã loại bỏ metadata Douyin)</h3>
+              <p class="section-sub">Nhấp vào ảnh để xem toàn màn hình. Có thể copy trực tiếp hoặc tải từng ảnh.</p>
+            </div>
+            <button id="btn-download-all-jpg" class="btn btn-emerald-sm">
+              <svg viewBox="0 0 24 24" class="btn-icon"><path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2v9.67z"/></svg>
+              <span>Tải tất cả ${0} ảnh JPG</span>
+            </button>
+          </div>
+          <div id="view-image-grid" class="image-gallery-grid">
+            <!-- Dynamically populated images -->
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <!-- Lightbox Viewer Modal -->
+  <div id="lightbox" class="lightbox" onclick="closeLightbox()">
+    <button class="lightbox-btn lightbox-close" onclick="closeLightbox()">&times;</button>
+    <button class="lightbox-btn lightbox-prev" onclick="event.stopPropagation(); changeLightbox(-1)">&#10094;</button>
+    <div class="lightbox-body" onclick="event.stopPropagation()">
+      <img id="lightbox-img" src="" alt="Fullscreen View" />
+      <div class="lightbox-toolbar">
+        <span id="lightbox-counter">1 / 1</span>
+        <div class="lightbox-actions">
+          <button id="lightbox-copy-btn" class="btn-lightbox" onclick="copyCurrentLightboxImage()">📋 Copy ảnh</button>
+          <a id="lightbox-dl-btn" href="#" download="" class="btn-lightbox">⬇ Tải JPG này</a>
+        </div>
+      </div>
+    </div>
+    <button class="lightbox-btn lightbox-next" onclick="event.stopPropagation(); changeLightbox(1)">&#10095;</button>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="viewer.js"></script>
+</body>
+</html>
