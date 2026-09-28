@@ -310,7 +310,9 @@
         }
       }
       if (!result.createTime) {
-        result.createTime = new Date().toLocaleString('vi-VN');
+        // Do not use the current time here: that would incorrectly present
+        // the extraction time as the author's publish time.
+        result.createTime = 'Không xác định';
       }
     }
   }

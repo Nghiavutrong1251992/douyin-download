@@ -32,6 +32,10 @@
       btn.style.opacity = '0.6';
       btn.innerHTML = '<span>⏳ Đang trích xuất...</span>';
 
+      // Keep the review UI visible beside Douyin instead of using a small,
+      // temporary toolbar popup.
+      chrome.runtime.sendMessage({ type: 'OPEN_SIDE_PANEL' });
+
       window.postMessage({ type: 'REQ_EXTRACT_DOUYIN' }, '*');
 
       // Auto-restore button after 5s timeout
@@ -80,7 +84,7 @@
         const mediaCount = data.images.length > 0
           ? `${data.images.length} ảnh HD`
           : (data.videoUrl ? '1 video' : 'dữ liệu');
-        showToast(`✅ Đã trích xuất ${mediaCount}! Bấm vào icon Extension để xem & dịch.`);
+        showToast(`✅ Đã trích xuất ${mediaCount}! Dữ liệu đã hiện trong sidebar.`);
       });
     } else {
       showToast('❌ Không tìm thấy dữ liệu. Hãy mở trang chi tiết bài viết Douyin.');

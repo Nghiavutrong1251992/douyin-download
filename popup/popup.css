@@ -26,9 +26,9 @@
 }
 
 body {
-  width: 480px;
-  min-height: 580px;
-  max-height: 600px;
+  width: 100%;
+  min-width: 320px;
+  min-height: 100vh;
   overflow-y: auto;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   background-color: var(--bg-primary);
@@ -736,5 +736,104 @@ body {
 
 .mb-2 {
   margin-bottom: 8px;
+}
+
+/* Multi-Fanpage manager */
+.btn-icon-only {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+  background: rgba(255,255,255,.07);
+  color: #fff;
+  cursor: pointer;
+  font-size: 18px;
+}
+
+.connection-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 11px;
+  margin-bottom: 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(255,255,255,.05);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: #64748b; }
+.connection-status.connected .status-dot { background: #10b981; box-shadow: 0 0 8px #10b981; }
+.connection-status.loading .status-dot { background: #f59e0b; }
+.connection-status.error .status-dot { background: #ef4444; }
+
+.btn-fb-connect {
+  background: #1877f2;
+  color: #fff;
+  margin-bottom: 12px;
+}
+.btn-full { width: 100%; }
+
+.fanpage-list { display: flex; flex-direction: column; gap: 8px; }
+.fanpage-item {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: rgba(15,17,26,.62);
+}
+.fanpage-item.default { border-color: rgba(24,119,242,.65); }
+.fanpage-avatar {
+  width: 42px; height: 42px; border-radius: 50%; overflow: hidden;
+  display: grid; place-items: center; background: #1877f2; color: #fff;
+  font-size: 24px; font-weight: 700;
+}
+.fanpage-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.fanpage-info { min-width: 0; }
+.fanpage-name { font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fanpage-meta { font-size: 10px; color: var(--text-muted); margin-top: 3px; }
+.token-active { color: #34d399; }
+.token-invalid, .token-reconnect_required { color: #f87171; }
+.fanpage-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
+.fanpage-actions .btn-sm-action:disabled { color: #60a5fa; cursor: default; }
+
+/* Side Panel layout: remains readable while the browser panel is resized. */
+@media (max-width: 520px) {
+  body {
+    padding: 12px;
+  }
+
+  .header {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .nav-tabs {
+    width: 100%;
+  }
+
+  .tab-btn {
+    flex: 1;
+    padding-inline: 6px;
+  }
+
+  .action-row,
+  .secondary-actions-row {
+    flex-direction: column;
+  }
+
+  .btn-primary,
+  .btn-secondary,
+  .btn-secondary-download {
+    width: 100%;
+  }
+
+  .image-grid {
+    grid-template-columns: repeat(2, 1fr);
+    max-height: 320px;
+  }
 }
 

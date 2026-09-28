@@ -45,6 +45,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   let searchQuery = '';
   let activePost = null;
   let activeLightboxIndex = 0;
+  let galleryRenderGeneration = 0;
+  let galleryImageObserver = null;
 
   // ===== INITIAL LOAD =====
   await refreshPostsList();
@@ -117,10 +119,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       const isPub = post.status === 'published';
 
       card.innerHTML = `
-        <img class="card-thumb" src="${thumbUrl}" alt="Thumbnail" />
+        <img class="card-thumb" src="${thumbUrl}" alt="Thumbnail" loading="lazy" decoding="async" />
         <div class="card-details">
           <div class="card-title" title="${escapeHtml(post.desc || '')}">${escapeHtml(post.desc || '(Không có tiêu đề)')}</div>
           <div class="card-author">@${escapeHtml(post.author || 'Tác giả')}</div>
+          <div class="card-date">📅 ${escapeHtml(formatPublishedDate(post))}</div>
           <div class="card-bottom-row">
             <span class="card-badge ${isPub ? 'published' : 'pending'}">${isPub ? 'Đã đăng' : 'Chưa đăng'}</span>
             <span class="card-count">${(post.images || []).length} ảnh</span>
@@ -146,7 +149,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Fill header
     viewAuthor.innerText = post.author ? `@${post.author}` : 'Tác giả Douyin';
     viewAvatar.src = post.avatar || '../icons/icon48.png';
-    viewTime.innerText = `🕒 Đăng lúc: ${post.createTime || 'Hôm nay'}`;
+    viewTime.innerText = `📅 Ngày tác giả đăng: ${formatPublishedDate(post)}`;
     viewImgCount.innerText = `🖼️ ${(post.images || []).length} ảnh JPG`;
 
     if (post.sourceUrl || post.url) {
@@ -207,41 +210,100 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // ===== RENDER CLEAN JPG IMAGES GRID =====
   function renderImagesGrid(images) {
+    const renderGeneration = ++galleryRenderGeneration;
+    if (galleryImageObserver) galleryImageObserver.disconnect();
+
     viewImageGrid.innerHTML = '';
     btnDownloadAllJpg.querySelector('span').innerText = `Tải tất cả ${images.length} ảnh JPG`;
+    btnDownloadAllJpg.disabled = images.length === 0;
 
-    images.forEach((imgObj, idx) => {
-      const card = document.createElement('div');
-      card.className = 'gallery-photo-card';
+    // Data URLs can be several MB each. Keep them out of <img src> until the
+    // card is close to the viewport so the browser does not decode everything
+    // at once and freeze the Offline Studio.
+    const pendingSources = new WeakMap();
+    galleryImageObserver = new IntersectionObserver((entries, observer) => {
+      entries.forEach(entry => {
+        if (!entry.isIntersecting) return;
+        const image = entry.target;
+        const source = pendingSources.get(image);
+        if (source) image.src = source;
+        pendingSources.delete(image);
+        observer.unobserve(image);
+      });
+    }, { rootMargin: '500px 0px' });
 
-      const imgSrc = imgObj.dataUrl;
+    let nextIndex = 0;
+    const renderBatch = () => {
+      if (renderGeneration !== galleryRenderGeneration) return;
 
-      card.innerHTML = `
-        <div class="photo-wrapper">
-          <img class="photo-img" src="${imgSrc}" alt="Photo ${idx + 1}" loading="lazy" />
-          <span class="photo-index-tag">#${idx + 1}</span>
-          <div class="photo-actions-overlay">
-            <button class="btn-photo-action copy-img-btn" title="Sao chép ảnh này">📋 Copy</button>
-            <a class="btn-photo-action dl-img-btn" href="${imgSrc}" download="${imgObj.filename || `photo_${idx + 1}.jpg`}" title="Tải ảnh JPG này">⬇ Tải</a>
+      const fragment = document.createDocumentFragment();
+      const batchEnd = Math.min(nextIndex + 8, images.length);
+
+      for (; nextIndex < batchEnd; nextIndex++) {
+        const idx = nextIndex;
+        const imgObj = images[idx];
+        const imgSrc = imgObj.dataUrl;
+        const card = document.createElement('div');
+        card.className = 'gallery-photo-card';
+
+        card.innerHTML = `
+          <div class="photo-wrapper">
+            <img class="photo-img" alt="Ảnh ${idx + 1}" loading="lazy" decoding="async" />
+            <span class="photo-index-tag">#${idx + 1}</span>
+            <div class="photo-actions-overlay">
+              <button type="button" class="btn-photo-action copy-img-btn" title="Sao chép ảnh này">📋 Copy</button>
+              <a class="btn-photo-action dl-img-btn" href="#" download="${imgObj.filename || `photo_${idx + 1}.jpg`}" title="Tải ảnh JPG này">⬇ Tải</a>
+              <button type="button" class="btn-photo-action delete-img-btn" title="Xóa ảnh này khỏi bài">🗑 Xóa</button>
+            </div>
           </div>
-        </div>
-      `;
+        `;
 
-      card.addEventListener('click', (e) => {
-        if (!e.target.closest('.copy-img-btn') && !e.target.closest('.dl-img-btn')) {
-          openLightbox(idx);
-        }
-      });
+        const photo = card.querySelector('.photo-img');
+        pendingSources.set(photo, imgSrc);
+        galleryImageObserver.observe(photo);
 
-      // Copy image button
-      const copyBtn = card.querySelector('.copy-img-btn');
-      copyBtn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        await copyImageToClipboard(imgSrc);
-      });
+        card.addEventListener('click', (e) => {
+          if (!e.target.closest('.photo-actions-overlay')) openLightbox(idx);
+        });
 
-      viewImageGrid.appendChild(card);
-    });
+        card.querySelector('.copy-img-btn').addEventListener('click', async (e) => {
+          e.stopPropagation();
+          await copyImageToClipboard(imgSrc);
+        });
+
+        card.querySelector('.dl-img-btn').addEventListener('click', (e) => {
+          e.stopPropagation();
+          e.currentTarget.href = imgSrc;
+        });
+
+        card.querySelector('.delete-img-btn').addEventListener('click', async (e) => {
+          e.stopPropagation();
+          await deleteImage(idx);
+        });
+
+        fragment.appendChild(card);
+      }
+
+      viewImageGrid.appendChild(fragment);
+      if (nextIndex < images.length) requestAnimationFrame(renderBatch);
+    };
+
+    renderBatch();
+  }
+
+  async function deleteImage(index) {
+    if (!activePost?.images?.[index]) return;
+    if (!confirm(`Xóa ảnh #${index + 1} khỏi bài viết offline này?`)) return;
+
+    activePost.images.splice(index, 1);
+    activePost.thumbUrl = activePost.images[0]?.dataUrl || '';
+    await DouyinDB.savePost(activePost);
+
+    lightbox.classList.remove('active');
+    viewImgCount.innerText = `🖼️ ${activePost.images.length} ảnh JPG`;
+    renderImagesGrid(activePost.images);
+    renderSidebarList();
+    showToast('🗑️ Đã xóa ảnh khỏi bài viết offline');
   }
 
   // ===== LIGHTBOX =====
@@ -459,5 +521,20 @@ document.addEventListener('DOMContentLoaded', async () => {
               .replace(/>/g, '&gt;')
               .replace(/"/g, '&quot;')
               .replace(/'/g, '&#039;');
+  }
+
+  function formatPublishedDate(post) {
+    const rawTimestamp = Number(post.createTimestamp);
+    if (Number.isFinite(rawTimestamp) && rawTimestamp > 0) {
+      const milliseconds = rawTimestamp < 1e12 ? rawTimestamp * 1000 : rawTimestamp;
+      const date = new Date(milliseconds);
+      if (!Number.isNaN(date.getTime())) {
+        return new Intl.DateTimeFormat('vi-VN', {
+          day: '2-digit', month: '2-digit', year: 'numeric',
+          hour: '2-digit', minute: '2-digit'
+        }).format(date);
+      }
+    }
+    return String(post.createTime || 'Không xác định');
   }
 });

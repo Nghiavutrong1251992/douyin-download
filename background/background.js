@@ -2,6 +2,14 @@
 // Core responsibility: Handle image downloading with correct headers,
 // DeepSeek translation, and cross-origin fetching
 
+// Open the extension as a persistent browser side panel when its toolbar
+// icon is clicked. Chrome/Edge lets the user choose whether panels sit on
+// the left or right side of the browser window.
+if (chrome.sidePanel?.setPanelBehavior) {
+  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
+    .catch((error) => console.warn('[Douyin→FB] Cannot configure side panel:', error));
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.get(['deepseekApiKey', 'deepseekModel', 'systemPromptTemplate'], (res) => {
     if (!res.deepseekModel) {
@@ -146,6 +154,19 @@ async function translateWithDeepSeek(apiKey, model, systemPrompt, originalText) 
 
 // ============ MESSAGE LISTENER ============
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+
+  // The on-page Douyin button requests the panel during its user gesture.
+  if (request.type === 'OPEN_SIDE_PANEL') {
+    if (!chrome.sidePanel?.open || !sender.tab?.windowId) {
+      sendResponse({ success: false, error: 'Trình duyệt chưa hỗ trợ Side Panel.' });
+      return false;
+    }
+
+    chrome.sidePanel.open({ windowId: sender.tab.windowId })
+      .then(() => sendResponse({ success: true }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
 
   // Fetch image as base64 (for ZIP packaging)
   if (request.type === 'FETCH_IMAGE_BASE64') {

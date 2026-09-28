@@ -1,0 +1,16 @@
+name = "douyin-facebook-api"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+[vars]
+FB_APP_ID = "YOUR_FACEBOOK_APP_ID"
+FB_GRAPH_VERSION = "v26.0"
+CHROME_EXTENSION_ID = "YOUR_CHROME_EXTENSION_ID"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "douyin-facebook"
+database_id = "YOUR_D1_DATABASE_ID"
+
+[triggers]
+crons = ["0 2 * * *"]

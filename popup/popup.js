@@ -3,9 +3,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // ===== DOM References =====
   const tabExtractBtn = document.getElementById('tab-extract-btn');
   const tabLibraryBtn = document.getElementById('tab-library-btn');
+  const tabFanpagesBtn = document.getElementById('tab-fanpages-btn');
   const tabSettingsBtn = document.getElementById('tab-settings-btn');
   const tabExtract = document.getElementById('tab-extract');
   const tabLibrary = document.getElementById('tab-library');
+  const tabFanpages = document.getElementById('tab-fanpages');
   const tabSettings = document.getElementById('tab-settings');
 
   const libraryCount = document.getElementById('library-count');
@@ -43,14 +45,19 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnSaveAndView = document.getElementById('btn-save-and-view');
   const btnOpenStudio = document.getElementById('btn-open-studio');
   const btnSaveOfflinePackage = document.getElementById('btn-save-offline-package');
-  const btnPrepareFacebook = document.getElementById('btn-prepare-facebook');
-  const fbInfoNote = document.getElementById('fb-info-note');
 
   const settingDeepseekKey = document.getElementById('setting-deepseek-key');
   const settingDeepseekModel = document.getElementById('setting-deepseek-model');
   const settingSystemPrompt = document.getElementById('setting-system-prompt');
   const btnSaveSettings = document.getElementById('btn-save-settings');
   const saveStatus = document.getElementById('save-status');
+  const settingFacebookWorker = document.getElementById('setting-facebook-worker');
+
+  const btnConnectFacebook = document.getElementById('btn-connect-facebook');
+  const btnRefreshFanpages = document.getElementById('btn-refresh-fanpages');
+  const facebookConnectionStatus = document.getElementById('facebook-connection-status');
+  const fanpageList = document.getElementById('fanpage-list');
+  const fanpageEmpty = document.getElementById('fanpage-empty');
 
   // ===== State =====
   let currentMediaData = null;
@@ -62,15 +69,21 @@ document.addEventListener('DOMContentLoaded', () => {
     switchTab('tab-library');
     loadLibrary();
   });
+  tabFanpagesBtn.addEventListener('click', () => {
+    switchTab('tab-fanpages');
+    loadFanpages();
+  });
   tabSettingsBtn.addEventListener('click', () => switchTab('tab-settings'));
 
   function switchTab(target) {
     tabExtractBtn.classList.toggle('active', target === 'tab-extract');
     tabLibraryBtn.classList.toggle('active', target === 'tab-library');
+    tabFanpagesBtn.classList.toggle('active', target === 'tab-fanpages');
     tabSettingsBtn.classList.toggle('active', target === 'tab-settings');
 
     tabExtract.classList.toggle('active', target === 'tab-extract');
     tabLibrary.classList.toggle('active', target === 'tab-library');
+    tabFanpages.classList.toggle('active', target === 'tab-fanpages');
     tabSettings.classList.toggle('active', target === 'tab-settings');
   }
 
@@ -85,10 +98,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // ===== SETTINGS & PERSISTENCE =====
   async function loadSettings() {
     chrome.storage.local.get(
-      ['deepseekApiKey', 'deepseekModel', 'systemPromptTemplate', 'currentExtractedData', 'lastExtractedAt'],
+      ['deepseekApiKey', 'deepseekModel', 'systemPromptTemplate', 'facebookWorkerUrl', 'currentExtractedData', 'lastExtractedAt'],
       (res) => {
         if (res.deepseekApiKey) settingDeepseekKey.value = res.deepseekApiKey;
         if (res.deepseekModel) settingDeepseekModel.value = res.deepseekModel;
+        if (res.facebookWorkerUrl) settingFacebookWorker.value = res.facebookWorkerUrl;
         if (res.systemPromptTemplate) {
           settingSystemPrompt.value = res.systemPromptTemplate;
         } else {
@@ -126,16 +140,152 @@ Format:
 Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
   }
 
-  btnSaveSettings.addEventListener('click', () => {
+  btnSaveSettings.addEventListener('click', async () => {
+    const workerUrl = normalizeWorkerUrl(settingFacebookWorker.value);
+    if (workerUrl) {
+      try {
+        const granted = await chrome.permissions.request({ origins: [`${new URL(workerUrl).origin}/*`] });
+        if (!granted) throw new Error('Bạn chưa cấp quyền kết nối đến Cloudflare Worker.');
+      } catch (error) {
+        saveStatus.innerText = `❌ ${error.message}`;
+        return;
+      }
+    }
+
     chrome.storage.local.set({
       deepseekApiKey: settingDeepseekKey.value.trim(),
       deepseekModel: settingDeepseekModel.value,
-      systemPromptTemplate: settingSystemPrompt.value.trim()
+      systemPromptTemplate: settingSystemPrompt.value.trim(),
+      facebookWorkerUrl: workerUrl
     }, () => {
       saveStatus.innerText = '✅ Đã lưu cấu hình thành công!';
       setTimeout(() => { saveStatus.innerText = ''; }, 2500);
     });
   });
+
+  // ===== MULTI-FANPAGE MANAGEMENT =====
+  btnConnectFacebook.addEventListener('click', async () => {
+    setFacebookBusy(true, 'Đang mở Facebook...');
+    try {
+      const redirectUrl = chrome.identity.getRedirectURL('facebook');
+      const session = await facebookApi('/v1/facebook/connect-session', {
+        method: 'POST',
+        body: JSON.stringify({ redirectUrl })
+      });
+
+      await chrome.identity.launchWebAuthFlow({ url: session.authUrl, interactive: true });
+      await loadFanpages();
+    } catch (error) {
+      setFacebookStatus('error', error.message || 'Không thể kết nối Facebook.');
+    } finally {
+      setFacebookBusy(false);
+    }
+  });
+
+  btnRefreshFanpages.addEventListener('click', loadFanpages);
+
+  async function loadFanpages() {
+    fanpageList.innerHTML = '';
+    setFacebookStatus('loading', 'Đang kiểm tra kết nối...');
+    try {
+      const result = await facebookApi('/v1/pages');
+      const pages = result.pages || [];
+      fanpageEmpty.classList.toggle('hidden', pages.length > 0);
+      setFacebookStatus('connected', `Đã kết nối ${pages.length} Fanpage`);
+      pages.forEach(renderFanpage);
+    } catch (error) {
+      fanpageEmpty.classList.remove('hidden');
+      setFacebookStatus('error', error.message);
+    }
+  }
+
+  function renderFanpage(page) {
+    const item = document.createElement('div');
+    item.className = `fanpage-item ${page.isDefault ? 'default' : ''}`;
+    item.innerHTML = `
+      <div class="fanpage-avatar">${page.pictureUrl ? `<img src="${escapeHtml(page.pictureUrl)}" alt="">` : 'f'}</div>
+      <div class="fanpage-info">
+        <div class="fanpage-name">${escapeHtml(page.name || 'Facebook Page')}</div>
+        <div class="fanpage-meta">ID: ${escapeHtml(page.pageId)} · <span class="token-${escapeHtml(page.tokenStatus || 'active')}">${page.tokenStatus === 'active' ? 'Token hợp lệ' : 'Cần kết nối lại'}</span></div>
+      </div>
+      <div class="fanpage-actions">
+        <button class="btn-sm-action set-default-page" ${page.isDefault ? 'disabled' : ''}>${page.isDefault ? '✓ Mặc định' : 'Đặt mặc định'}</button>
+        <button class="btn-sm-action text-danger disconnect-page" title="Ngắt kết nối">×</button>
+      </div>
+    `;
+
+    item.querySelector('.set-default-page').addEventListener('click', async () => {
+      await facebookApi(`/v1/pages/${encodeURIComponent(page.pageId)}/default`, { method: 'PUT' });
+      await loadFanpages();
+    });
+    item.querySelector('.disconnect-page').addEventListener('click', async () => {
+      if (!confirm(`Ngắt kết nối Fanpage "${page.name}"?`)) return;
+      await facebookApi(`/v1/pages/${encodeURIComponent(page.pageId)}`, { method: 'DELETE' });
+      await loadFanpages();
+    });
+    fanpageList.appendChild(item);
+  }
+
+  async function facebookApi(path, options = {}) {
+    const stored = await chrome.storage.local.get(['facebookWorkerUrl', 'facebookInstallationId', 'facebookInstallationSecret']);
+    const workerUrl = normalizeWorkerUrl(stored.facebookWorkerUrl || settingFacebookWorker.value);
+    if (!workerUrl) throw new Error('Hãy nhập và lưu Cloudflare Worker URL trong Cài đặt.');
+
+    const origin = `${new URL(workerUrl).origin}/*`;
+    if (!await chrome.permissions.contains({ origins: [origin] })) {
+      throw new Error('Hãy lưu Cài đặt để cấp quyền truy cập Cloudflare Worker.');
+    }
+
+    const installationId = stored.facebookInstallationId || crypto.randomUUID();
+    const installationSecret = stored.facebookInstallationSecret || randomSecret();
+    if (!stored.facebookInstallationId || !stored.facebookInstallationSecret) {
+      await chrome.storage.local.set({ facebookInstallationId: installationId, facebookInstallationSecret: installationSecret });
+    }
+
+    await fetch(`${workerUrl}/v1/installations/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ installationId, installationSecret })
+    }).then(assertApiResponse);
+
+    return fetch(`${workerUrl}${path}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Install ${installationId}.${installationSecret}`,
+        ...(options.headers || {})
+      }
+    }).then(assertApiResponse);
+  }
+
+  async function assertApiResponse(response) {
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `Cloudflare API lỗi ${response.status}`);
+    return data;
+  }
+
+  function normalizeWorkerUrl(value) {
+    const trimmed = (value || '').trim().replace(/\/+$/, '');
+    if (!trimmed) return '';
+    const url = new URL(trimmed);
+    if (url.protocol !== 'https:') throw new Error('Cloudflare Worker URL phải dùng HTTPS.');
+    return url.origin + url.pathname.replace(/\/+$/, '');
+  }
+
+  function randomSecret() {
+    const bytes = crypto.getRandomValues(new Uint8Array(32));
+    return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  function setFacebookBusy(busy, text) {
+    btnConnectFacebook.disabled = busy;
+    if (text) setFacebookStatus('loading', text);
+  }
+
+  function setFacebookStatus(type, text) {
+    facebookConnectionStatus.className = `connection-status ${type}`;
+    facebookConnectionStatus.querySelector('span:last-child').innerText = text;
+  }
 
   // ===== STATUS BAR =====
   function showStatus(msg) {
@@ -512,7 +662,7 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
       author: currentMediaData.author || 'Tác giả Douyin',
       authorId: currentMediaData.authorId || '',
       avatar: avatarDataUrl || currentMediaData.avatar || '',
-      createTime: currentMediaData.createTime || new Date().toLocaleString('vi-VN'),
+      createTime: currentMediaData.createTime || 'Không xác định',
       createTimestamp: currentMediaData.createTimestamp || 0,
       desc: originalCaptionEl.value || currentMediaData.desc || '',
       englishCaption: englishCaptionEl.value || currentMediaData.englishCaption || '',
@@ -610,11 +760,6 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
       btnSaveOfflinePackage.disabled = false;
       alert('Lỗi: ' + e.message);
     }
-  });
-
-  // ===== FACEBOOK NOTE TOGGLE =====
-  btnPrepareFacebook.addEventListener('click', () => {
-    fbInfoNote.classList.toggle('hidden');
   });
 
   // ===== OFFLINE LIBRARY FUNCTIONS =====

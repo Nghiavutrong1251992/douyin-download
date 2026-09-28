@@ -201,6 +201,12 @@ body {
   color: var(--text-muted);
 }
 
+.card-date {
+  font-size: 10px;
+  color: #cbd5e1;
+  margin-top: 2px;
+}
+
 .card-bottom-row {
   display: flex;
   align-items: center;
@@ -522,6 +528,8 @@ body {
   transition: var(--transition);
   cursor: pointer;
   position: relative;
+  content-visibility: auto;
+  contain-intrinsic-size: 240px 280px;
 }
 .gallery-photo-card:hover {
   transform: translateY(-3px);
@@ -540,6 +548,7 @@ body {
   height: 100%;
   object-fit: cover;
   display: block;
+  background: linear-gradient(110deg, #182033 8%, #242e45 18%, #182033 33%);
 }
 
 .photo-index-tag {
@@ -566,6 +575,7 @@ body {
   align-items: center;
   justify-content: space-between;
   opacity: 0.9;
+  gap: 6px;
 }
 
 .btn-photo-action {
@@ -583,6 +593,19 @@ body {
 }
 .btn-photo-action:hover {
   background: rgba(255,255,255,0.35);
+}
+
+.delete-img-btn {
+  background: rgba(239, 68, 68, 0.72);
+  border-color: rgba(254, 202, 202, 0.35);
+}
+.delete-img-btn:hover {
+  background: #dc2626;
+}
+
+#btn-download-all-jpg:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 /* Buttons */

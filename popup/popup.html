@@ -25,8 +25,9 @@
       </div>
       <div class="nav-tabs">
         <button id="tab-extract-btn" class="tab-btn active" data-tab="tab-extract">Trích xuất</button>
-        <button id="tab-library-btn" class="tab-btn" data-tab="tab-library">Kho Offline (<span id="library-count">0</span>)</button>
-        <button id="tab-settings-btn" class="tab-btn" data-tab="tab-settings">Cài đặt API</button>
+        <button id="tab-library-btn" class="tab-btn" data-tab="tab-library">Kho (<span id="library-count">0</span>)</button>
+        <button id="tab-fanpages-btn" class="tab-btn" data-tab="tab-fanpages">Fanpages</button>
+        <button id="tab-settings-btn" class="tab-btn" data-tab="tab-settings">Cài đặt</button>
       </div>
     </header>
 
@@ -138,9 +139,6 @@
               </button>
             </div>
           </div>
-          <div id="fb-info-note" class="fb-note hidden">
-            💡 <em>Tính năng kết nối trực tiếp Facebook Fanpage sẵn sàng tích hợp ở bước tiếp theo! Hiện tại bạn có thể xem offline hoặc copy bài đăng ngay.</em>
-          </div>
         </div>
       </section>
     </main>
@@ -167,8 +165,46 @@
       </div>
     </main>
 
-    <!-- TAB 3: SETTINGS -->
+    <!-- TAB 3: FACEBOOK FANPAGES -->
+    <main id="tab-fanpages" class="tab-content">
+      <div class="card fanpage-manager">
+        <div class="card-header-flex">
+          <div>
+            <h2 class="section-title">Quản lý Facebook Fanpage</h2>
+            <p class="helper-text">Kết nối và quản lý nhiều Fanpage. Token được giữ tại Cloudflare, không lưu trong extension.</p>
+          </div>
+          <button id="btn-refresh-fanpages" class="btn-icon-only" title="Làm mới danh sách">↻</button>
+        </div>
+
+        <div id="facebook-connection-status" class="connection-status disconnected">
+          <span class="status-dot"></span>
+          <span>Chưa kết nối Cloudflare/Facebook</span>
+        </div>
+
+        <button id="btn-connect-facebook" class="btn btn-fb-connect btn-full">
+          <span>ⓕ Kết nối Facebook và thêm Fanpage</span>
+        </button>
+
+        <div id="fanpage-list" class="fanpage-list"></div>
+        <div id="fanpage-empty" class="library-empty">
+          <div class="empty-icon">📣</div>
+          <p class="empty-title">Chưa có Fanpage nào</p>
+          <small class="empty-sub">Cấu hình địa chỉ Cloudflare Worker, sau đó kết nối tài khoản Facebook quản lý Page.</small>
+        </div>
+      </div>
+    </main>
+
+    <!-- TAB 4: SETTINGS -->
     <main id="tab-settings" class="tab-content">
+      <div class="card">
+        <h2 class="section-title">Kết nối Cloudflare</h2>
+        <div class="form-group">
+          <label for="setting-facebook-worker">Cloudflare Worker URL:</label>
+          <input type="url" id="setting-facebook-worker" class="form-input" placeholder="https://douyin-fb-api.ten-ban.workers.dev">
+          <small class="helper-text">Backend OAuth Facebook và token Fanpage. Không nhập Facebook token vào đây.</small>
+        </div>
+      </div>
+
       <div class="card">
         <h2 class="section-title">Cấu hình DeepSeek API</h2>
         

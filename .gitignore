@@ -3,3 +3,6 @@ _metadata/
 Thumbs.db
 *.zip
 *.log
+cloudflare-worker/wrangler.toml
+cloudflare-worker/.dev.vars*
+cloudflare-worker/.wrangler/

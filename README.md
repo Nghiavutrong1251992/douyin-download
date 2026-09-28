@@ -57,11 +57,13 @@ Bạn có 2 cách cực kỳ tiện lợi:
    ```
    7.69 09/05 :4pm ufb:/ b@a.Nw 富国岛 |世界最长的跨海缆车🚡 谁能想到能美成这样上帝视角俯瞰绝美海景 # 富国岛香岛缆车 # 世界最长的跨海缆车  https://v.douyin.com/VwdKWppOPSU/
    ```
-2. Mở popup extension, dán vào ô nhập liệu và bấm **"⚡ Phân tích & Lấy dữ liệu"**.
+2. Bấm icon extension để mở sidebar, dán vào ô nhập liệu và bấm **"⚡ Phân tích & Lấy dữ liệu"**.
 3. Extension sẽ tải toàn bộ ảnh HD của bài cáp treo Phú Quốc và gọi DeepSeek AI viết bài tiếng Anh ngay lập tức.
 4. Bấm **"Tải ZIP (Ảnh HD + Caption)"** để lưu về máy.
 
 ### Cách 2: Lướt trực tiếp trên Douyin
 1. Mở link bài viết trên Chrome: `https://v.douyin.com/VwdKWppOPSU/`
 2. Bấm vào nút nổi màu đỏ **"Lấy bài sang FB"** ở góc dưới bên phải màn hình.
-3. Mở popup extension để xem toàn bộ ảnh và caption đã được sẵn sàng!
+3. Sidebar sẽ tự mở để bạn xem toàn bộ ảnh và caption đã được sẵn sàng!
+
+> **Đặt sidebar bên trái:** Chrome/Edge quản lý vị trí Side Panel ở cấp trình duyệt nên extension không thể tự ép vị trí. Mở Side Panel, vào phần tùy chỉnh/cài đặt bảng điều khiển và chọn hiển thị ở **bên trái**. Trình duyệt sẽ ghi nhớ lựa chọn này.
