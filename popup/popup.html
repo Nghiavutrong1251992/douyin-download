@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="popup.css">
   <script src="../lib/jszip.min.js"></script>
   <script src="../lib/db.js"></script>
+  <script src="../lib/filesystem.js"></script>
 </head>
 <body>
   <div class="app-container">
@@ -202,6 +203,17 @@
           <label for="setting-facebook-worker">Cloudflare Worker URL:</label>
           <input type="url" id="setting-facebook-worker" class="form-input" placeholder="https://douyin-fb-api.ten-ban.workers.dev">
           <small class="helper-text">Backend OAuth Facebook và token Fanpage. Không nhập Facebook token vào đây.</small>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 class="section-title">Thư mục ảnh Offline</h2>
+        <p class="helper-text mb-2">Mỗi bài được lưu trong <strong>Douyin_Offline</strong>, kèm caption và metadata tag.</p>
+        <div id="offline-folder-status" class="folder-status">Chưa chọn thư mục</div>
+        <div class="folder-actions">
+          <button id="btn-choose-offline-folder" class="btn btn-secondary">📁 Chọn thư mục</button>
+          <button id="btn-sync-offline-folder" class="btn btn-secondary">↻ Đồng bộ kho</button>
+          <button id="btn-restore-offline-folder" class="btn btn-secondary">♻ Khôi phục kho</button>
         </div>
       </div>
 

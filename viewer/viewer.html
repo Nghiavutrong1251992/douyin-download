@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="viewer.css">
   <script src="../lib/jszip.min.js"></script>
   <script src="../lib/db.js"></script>
+  <script src="../lib/filesystem.js"></script>
 </head>
 <body>
   <div class="studio-app">
@@ -26,7 +27,17 @@
 
       <!-- Search & Filters -->
       <div class="sidebar-tools">
-        <input type="text" id="search-input" class="search-input" placeholder="🔍 Tìm kiếm bài viết..." />
+        <input type="text" id="search-input" class="search-input" placeholder="🔍 Tìm bài, tác giả hoặc tag ảnh..." />
+        <div class="library-select-row">
+          <select id="month-filter" class="library-select" title="Lọc theo tháng tác giả đăng">
+            <option value="all">Tất cả tháng</option>
+          </select>
+          <select id="image-process-filter" class="library-select" title="Lọc trạng thái xử lý ảnh">
+            <option value="all">Tất cả xử lý</option>
+            <option value="unprocessed">Chưa xử lý ảnh</option>
+            <option value="processed">Đã xử lý ảnh</option>
+          </select>
+        </div>
         <div class="filter-chips">
           <button class="filter-chip active" data-filter="all">Tất cả (<span id="count-all">0</span>)</button>
           <button class="filter-chip" data-filter="pending">Chưa đăng (<span id="count-pending">0</span>)</button>
@@ -70,7 +81,10 @@
                 <span id="view-badge-status" class="badge-status status-pending">Chưa đăng FB</span>
               </div>
               <div class="author-meta-row">
-                <span id="view-time">📅 Ngày tác giả đăng: --</span>
+                <span class="publish-date-control">
+                  <span id="view-time">📅 Ngày tác giả đăng: --</span>
+                  <button id="btn-edit-publish-date" class="btn-inline-edit" title="Nhập ngày đăng thủ công">✎ Sửa ngày</button>
+                </span>
                 <span id="view-img-count">🖼️ 0 ảnh JPG</span>
                 <a id="view-origin-link" href="#" target="_blank" class="origin-link">🔗 Xem link Douyin gốc</a>
               </div>
@@ -82,12 +96,17 @@
               <input type="checkbox" id="check-published" class="toggle-checkbox" />
               <span class="toggle-text">Đã đăng lên Facebook</span>
             </label>
+            <label class="toggle-switch-label image-processed-toggle" title="Đánh dấu đã hoàn tất chọn, tag và xử lý ảnh">
+              <input type="checkbox" id="check-images-processed" class="toggle-checkbox" />
+              <span class="toggle-text">Đã xử lý ảnh</span>
+            </label>
             <button id="btn-export-zip" class="btn btn-secondary-outline">
               <svg viewBox="0 0 24 24" class="btn-icon"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
               <span>Xuất ZIP ra máy</span>
             </button>
-            <button id="btn-delete-post" class="btn btn-danger-icon" title="Xóa bài viết này">
+            <button id="btn-delete-post" class="btn btn-danger-icon" title="Xóa toàn bộ bài viết này">
               <svg viewBox="0 0 24 24" class="btn-icon"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+              <span>Xóa bài</span>
             </button>
           </div>
         </header>
@@ -118,6 +137,8 @@
               </button>
             </div>
             <textarea id="view-zh-caption" class="caption-editor readonly" rows="8" readonly></textarea>
+            <label for="view-internal-notes" class="notes-label">Ghi chú nội bộ</label>
+            <textarea id="view-internal-notes" class="caption-editor notes-editor" rows="3" placeholder="Ghi chú để phân loại hoặc xử lý sau... Ghi chú này không được đưa vào bài Facebook."></textarea>
           </div>
         </section>
 
@@ -126,12 +147,28 @@
           <div class="gallery-head">
             <div>
               <h3 class="section-heading">Bộ sưu tập ảnh (.JPG chuẩn - Đã loại bỏ metadata Douyin)</h3>
-              <p class="section-sub">Nhấp vào ảnh để xem toàn màn hình. Có thể copy trực tiếp hoặc tải từng ảnh.</p>
+              <p class="section-sub">Bấm vào ảnh để chọn; Shift+bấm chọn cả dải; nút 👁 để phóng to.</p>
             </div>
-            <button id="btn-download-all-jpg" class="btn btn-emerald-sm">
-              <svg viewBox="0 0 24 24" class="btn-icon"><path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2v9.67z"/></svg>
-              <span>Tải tất cả ${0} ảnh JPG</span>
-            </button>
+            <div class="gallery-head-actions">
+              <input id="image-tag-search" class="tag-search-input" type="search" placeholder="🔎 Tìm ảnh theo tag...">
+              <button id="btn-tag-all-images" class="btn btn-secondary-outline" title="Gắn cùng một nhóm tag cho tất cả ảnh">🏷 Tag tất cả</button>
+              <button id="btn-save-to-folder" class="btn btn-secondary-outline">📁 Lưu thư mục</button>
+              <button id="btn-download-all-jpg" class="btn btn-emerald-sm">
+                <svg viewBox="0 0 24 24" class="btn-icon"><path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2v9.67z"/></svg>
+                <span>Tải ${0} ảnh</span>
+              </button>
+            </div>
+          </div>
+          <div class="image-selection-toolbar">
+            <span id="selected-images-count" class="selection-count">Chưa chọn ảnh</span>
+            <button id="btn-select-all-images" class="btn-compact">Chọn tất cả</button>
+            <button id="btn-clear-image-selection" class="btn-compact">Bỏ chọn</button>
+            <button id="btn-tag-selected-images" class="btn-compact btn-compact-primary" disabled>🏷 Tag ảnh chọn</button>
+            <button id="btn-rename-selected-images" class="btn-compact btn-compact-primary" disabled>✎ Đổi tên</button>
+            <button id="btn-rotate-left-images" class="btn-compact btn-compact-primary" disabled>↶ Xoay trái</button>
+            <button id="btn-rotate-right-images" class="btn-compact btn-compact-primary" disabled>↷ Xoay phải</button>
+            <button id="btn-optimize-selected-images" class="btn-compact btn-compact-primary" disabled>◫ Tạo ảnh xem nhẹ</button>
+            <button id="btn-delete-selected-images" class="btn-compact btn-compact-danger" disabled>🗑 Xóa ảnh chọn</button>
           </div>
           <div id="view-image-grid" class="image-gallery-grid">
             <!-- Dynamically populated images -->

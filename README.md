@@ -20,6 +20,10 @@ Tiện ích mở rộng Chrome / Microsoft Edge giúp bóc tách toàn bộ ản
    - Nút copy nhanh bài đăng vào clipboard.
 5. **Nút bấm nổi ngay trên Douyin (On-page Action)**:
    - Khi bạn lướt `douyin.com`, góc phải dưới màn hình có sẵn nút *"Lấy bài sang FB"*, bấm 1 cái là tự động đọc toàn bộ ảnh và caption của bài đang xem.
+6. **Phân loại ảnh và thư mục Offline**:
+   - Gắn nhiều tag cho từng ảnh trong Offline Studio và tìm bài/ảnh lại theo tag.
+   - Chọn thư mục thật trên máy trong tab **Cài đặt**. Extension tự tạo `Douyin_Offline`, mỗi bài có thư mục ảnh, caption và `metadata.json` chứa tag.
+   - Nút **Đồng bộ kho** xuất lại toàn bộ bài đã lưu; nút **Lưu vào thư mục** cập nhật riêng bài đang xem.
 
 ---
 

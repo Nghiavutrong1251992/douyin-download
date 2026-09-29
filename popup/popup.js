@@ -58,6 +58,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const facebookConnectionStatus = document.getElementById('facebook-connection-status');
   const fanpageList = document.getElementById('fanpage-list');
   const fanpageEmpty = document.getElementById('fanpage-empty');
+  const offlineFolderStatus = document.getElementById('offline-folder-status');
+  const btnChooseOfflineFolder = document.getElementById('btn-choose-offline-folder');
+  const btnSyncOfflineFolder = document.getElementById('btn-sync-offline-folder');
+  const btnRestoreOfflineFolder = document.getElementById('btn-restore-offline-folder');
 
   // ===== State =====
   let currentMediaData = null;
@@ -127,6 +131,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (e) {}
   }
   loadSettings();
+  refreshOfflineFolderStatus();
 
   function getDefaultPrompt() {
     return `You are an expert social media manager for Facebook Travel and Lifestyle Fanpages.
@@ -285,6 +290,78 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
   function setFacebookStatus(type, text) {
     facebookConnectionStatus.className = `connection-status ${type}`;
     facebookConnectionStatus.querySelector('span:last-child').innerText = text;
+  }
+
+  // ===== OFFLINE FOLDER =====
+  btnChooseOfflineFolder.addEventListener('click', async () => {
+    try {
+      const handle = await DouyinFiles.chooseDirectory();
+      offlineFolderStatus.innerText = `✅ ${handle.name}/Douyin_Offline`;
+    } catch (error) {
+      if (error.name !== 'AbortError') offlineFolderStatus.innerText = `❌ ${error.message}`;
+    }
+  });
+
+  btnSyncOfflineFolder.addEventListener('click', async () => {
+    btnSyncOfflineFolder.disabled = true;
+    offlineFolderStatus.innerText = '⏳ Đang đồng bộ toàn bộ kho...';
+    try {
+      const posts = await DouyinDB.getAllPosts();
+      if (!posts.length) throw new Error('Kho Offline chưa có bài viết.');
+      await DouyinFiles.syncAll(posts, { requestPermission: true });
+      const info = await DouyinFiles.getDirectoryInfo();
+      offlineFolderStatus.innerText = `✅ Đã đồng bộ ${posts.length} bài vào ${info.name}/Douyin_Offline`;
+    } catch (error) {
+      offlineFolderStatus.innerText = `❌ ${error.message}`;
+    } finally {
+      btnSyncOfflineFolder.disabled = false;
+    }
+  });
+
+  btnRestoreOfflineFolder.addEventListener('click', async () => {
+    btnRestoreOfflineFolder.disabled = true;
+    offlineFolderStatus.innerText = '⏳ Đang đọc và khôi phục kho từ thư mục...';
+    try {
+      // Call the picker immediately from the click gesture after reinstall,
+      // because Chrome only permits directory selection during user action.
+      if (!DouyinFiles._handle) await DouyinFiles.chooseDirectory();
+      const posts = await DouyinFiles.importAll({ requestPermission: true });
+      if (!posts.length) throw new Error('Không tìm thấy bài hợp lệ có metadata.json.');
+
+      let restoredImages = 0;
+      for (let postIndex = 0; postIndex < posts.length; postIndex++) {
+        const post = posts[postIndex];
+        offlineFolderStatus.innerText = `⏳ Đang khôi phục bài ${postIndex + 1}/${posts.length}...`;
+        for (const image of post.images) {
+          const blob = await (await fetch(image.dataUrl)).blob();
+          const previewBlob = await convertBlobToCleanJpg(blob, 0.68, 480);
+          image.thumbnailDataUrl = await blobToDataUrl(previewBlob);
+          restoredImages++;
+        }
+        post.thumbUrl = post.images[0]?.thumbnailDataUrl || post.images[0]?.dataUrl || '';
+        await DouyinDB.savePost(post);
+      }
+
+      libraryCount.innerText = String((await DouyinDB.getAllPosts()).length);
+      const info = await DouyinFiles.getDirectoryInfo();
+      offlineFolderStatus.innerText = `✅ Đã khôi phục ${posts.length} bài, ${restoredImages} ảnh từ ${info.name}`;
+    } catch (error) {
+      if (error.name !== 'AbortError') offlineFolderStatus.innerText = `❌ ${error.message}`;
+    } finally {
+      btnRestoreOfflineFolder.disabled = false;
+    }
+  });
+
+  async function refreshOfflineFolderStatus() {
+    try {
+      const info = await DouyinFiles.getDirectoryInfo();
+      if (!info.configured) return;
+      offlineFolderStatus.innerText = info.permission === 'granted'
+        ? `✅ ${info.name}/Douyin_Offline`
+        : `⚠️ ${info.name} — cần cấp lại quyền ghi`;
+    } catch (error) {
+      offlineFolderStatus.innerText = `❌ ${error.message}`;
+    }
   }
 
   // ===== STATUS BAR =====
@@ -554,7 +631,7 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
 
   // ===== HELPER: CONVERT BLOB TO CLEAN JPG VIA CANVAS =====
   // Strips all EXIF, tracking headers & Douyin watermark metadata
-  function convertBlobToCleanJpg(blob, quality = 0.95) {
+  function convertBlobToCleanJpg(blob, quality = 1, maxDimension = null) {
     return new Promise((resolve, reject) => {
       const img = new Image();
       const url = URL.createObjectURL(blob);
@@ -562,12 +639,15 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
         URL.revokeObjectURL(url);
         try {
           const canvas = document.createElement('canvas');
-          canvas.width = img.naturalWidth || img.width;
-          canvas.height = img.naturalHeight || img.height;
+          const sourceWidth = img.naturalWidth || img.width;
+          const sourceHeight = img.naturalHeight || img.height;
+          const scale = maxDimension ? Math.min(1, maxDimension / Math.max(sourceWidth, sourceHeight)) : 1;
+          canvas.width = Math.max(1, Math.round(sourceWidth * scale));
+          canvas.height = Math.max(1, Math.round(sourceHeight * scale));
           const ctx = canvas.getContext('2d');
           ctx.fillStyle = '#FFFFFF';
           ctx.fillRect(0, 0, canvas.width, canvas.height);
-          ctx.drawImage(img, 0, 0);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
           canvas.toBlob((jpgBlob) => {
             if (jpgBlob) resolve(jpgBlob);
             else reject(new Error('Lỗi xuất canvas sang JPG'));
@@ -629,12 +709,16 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
       });
 
       const rawBlob = base64ToBlob(res.base64, res.type);
-      const cleanJpgBlob = await convertBlobToCleanJpg(rawBlob, 0.95);
+      const cleanJpgBlob = await convertBlobToCleanJpg(rawBlob, 1);
       const cleanDataUrl = await blobToDataUrl(cleanJpgBlob);
+      const thumbnailBlob = await convertBlobToCleanJpg(cleanJpgBlob, 0.68, 480);
+      const thumbnailDataUrl = await blobToDataUrl(thumbnailBlob);
 
       cleanImages.push({
         filename: `photo_${String(i + 1).padStart(2, '0')}.jpg`,
-        dataUrl: cleanDataUrl
+        dataUrl: cleanDataUrl,
+        thumbnailDataUrl: thumbnailDataUrl,
+        tags: []
       });
     }
 
@@ -649,7 +733,7 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
           });
         });
         const rawAvatarBlob = base64ToBlob(avatarRes.base64, avatarRes.type);
-        const cleanAvatarBlob = await convertBlobToCleanJpg(rawAvatarBlob, 0.9);
+        const cleanAvatarBlob = await convertBlobToCleanJpg(rawAvatarBlob, 0.8, 512);
         avatarDataUrl = await blobToDataUrl(cleanAvatarBlob);
       } catch (e) {
         console.warn('Không tải được avatar:', e);
@@ -665,17 +749,28 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
       createTime: currentMediaData.createTime || 'Không xác định',
       createTimestamp: currentMediaData.createTimestamp || 0,
       desc: originalCaptionEl.value || currentMediaData.desc || '',
+      notes: '',
       englishCaption: englishCaptionEl.value || currentMediaData.englishCaption || '',
       sourceUrl: currentMediaData.url || '',
       images: cleanImages,
-      thumbUrl: cleanImages.length > 0 ? cleanImages[0].dataUrl : '',
+      thumbUrl: cleanImages.length > 0 ? cleanImages[0].thumbnailDataUrl : '',
       status: 'pending',
+      imageProcessed: false,
       savedAt: Date.now()
     };
 
     // 4. Save to IndexedDB
     showStatus('Đang lưu vào kho Offline...');
     await DouyinDB.savePost(postRecord);
+
+    // If a folder is already authorized, mirror the post to disk without
+    // interrupting the normal IndexedDB save flow.
+    try {
+      const directory = await DouyinFiles.getDirectoryHandle(false);
+      if (directory) await DouyinFiles.savePost(postRecord);
+    } catch (error) {
+      console.warn('Không thể tự lưu bài vào thư mục Offline:', error);
+    }
 
     const posts = await DouyinDB.getAllPosts();
     libraryCount.innerText = posts.length;
@@ -780,7 +875,7 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
         const item = document.createElement('div');
         item.className = 'library-item';
 
-        const thumbUrl = (post.images && post.images.length > 0 && post.images[0].dataUrl) ||
+        const thumbUrl = (post.images && post.images.length > 0 && (post.images[0].thumbnailDataUrl || post.images[0].dataUrl)) ||
                          post.thumbUrl || post.avatar || '../icons/icon48.png';
 
         item.innerHTML = `
