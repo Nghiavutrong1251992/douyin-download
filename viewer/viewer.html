@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Douyin Offline Studio — Quản lý bài đăng Facebook</title>
+  <title>Douyin Offline Studio — Quản lý bài đăng & Kho ảnh</title>
   <link rel="stylesheet" href="viewer.css">
   <script src="../lib/jszip.min.js"></script>
   <script src="../lib/db.js"></script>
@@ -11,172 +11,305 @@
 </head>
 <body>
   <div class="studio-app">
-    <!-- Left Sidebar: Saved Posts Navigation -->
-    <aside class="sidebar">
-      <div class="sidebar-header">
-        <div class="brand">
-          <div class="logo-box">
-            <svg viewBox="0 0 24 24" class="logo-svg"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
-          </div>
-          <div>
-            <h1 class="brand-title">Offline Studio</h1>
-            <span class="brand-sub">Quản lý bài Douyin & Post FB</span>
-          </div>
+    <!-- Top Navigation Header -->
+    <header class="studio-topbar">
+      <div class="brand">
+        <div class="logo-box">
+          <svg viewBox="0 0 24 24" class="logo-svg"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+        </div>
+        <div>
+          <h1 class="brand-title">Offline Studio</h1>
+          <span class="brand-sub">Douyin & Facebook Manager</span>
         </div>
       </div>
 
-      <!-- Search & Filters -->
-      <div class="sidebar-tools">
-        <input type="text" id="search-input" class="search-input" placeholder="🔍 Tìm bài, tác giả hoặc tag ảnh..." />
-        <div class="library-select-row">
-          <select id="month-filter" class="library-select" title="Lọc theo tháng tác giả đăng">
-            <option value="all">Tất cả tháng</option>
-          </select>
-          <select id="image-process-filter" class="library-select" title="Lọc trạng thái xử lý ảnh">
-            <option value="all">Tất cả xử lý</option>
-            <option value="unprocessed">Chưa xử lý ảnh</option>
-            <option value="processed">Đã xử lý ảnh</option>
-          </select>
+      <!-- Navigation Tabs -->
+      <nav class="studio-nav-tabs">
+        <button id="tab-btn-posts" class="studio-nav-tab active" type="button" title="Quản lý và duyệt từng bài viết">
+          <span class="tab-icon">📑</span>
+          <span class="tab-label">Quản lý bài viết</span>
+          <span id="nav-count-posts" class="tab-badge">0</span>
+        </button>
+        <button id="tab-btn-global-photos" class="studio-nav-tab" type="button" title="Kho ảnh tổng hợp toàn cục, tìm kiếm nhanh và yêu thích">
+          <span class="tab-icon">🖼️</span>
+          <span class="tab-label">Kho ảnh toàn cục</span>
+          <span id="nav-count-global-photos" class="tab-badge">0</span>
+        </button>
+      </nav>
+
+      <div class="topbar-right">
+        <span class="topbar-chip"><span class="chip-dot"></span> Đang kết nối IndexedDB</span>
+      </div>
+    </header>
+
+    <!-- Studio Views Container -->
+    <div class="studio-views-container">
+      <!-- VIEW 1: Quản lý bài viết (Posts Manager) -->
+      <div id="view-posts-pane" class="studio-view-pane active">
+        <!-- Left Sidebar: Saved Posts Navigation -->
+        <aside class="sidebar">
+          <div class="sidebar-header compact">
+            <span class="sidebar-title">📚 Danh sách bài đã lưu</span>
+          </div>
+
+          <!-- Search & Filters -->
+          <div class="sidebar-tools">
+            <input type="text" id="search-input" class="search-input" placeholder="🔍 Tìm bài, tác giả, tỉnh thành, tag..." />
+            <div class="library-select-row">
+              <select id="province-filter" class="library-select" title="Lọc theo thẻ tag to (Tỉnh thành / Khu vực)">
+                <option value="all">📍 Tất cả tỉnh thành</option>
+              </select>
+              <select id="month-filter" class="library-select" title="Lọc theo tháng tác giả đăng">
+                <option value="all">Tất cả tháng</option>
+              </select>
+            </div>
+            <div class="library-select-row">
+              <select id="image-process-filter" class="library-select" title="Lọc trạng thái xử lý ảnh">
+                <option value="all">Tất cả xử lý</option>
+                <option value="unprocessed">Chưa xử lý ảnh</option>
+                <option value="processed">Đã xử lý ảnh</option>
+              </select>
+            </div>
+            <div class="filter-chips">
+              <button class="filter-chip active" data-filter="all">Tất cả (<span id="count-all">0</span>)</button>
+              <button class="filter-chip" data-filter="pending">Chưa đăng (<span id="count-pending">0</span>)</button>
+              <button class="filter-chip" data-filter="published">Đã đăng (<span id="count-published">0</span>)</button>
+            </div>
+          </div>
+
+          <!-- Post List -->
+          <div id="posts-list" class="posts-list">
+            <!-- Dynamically injected post items -->
+          </div>
+
+          <div id="empty-sidebar" class="empty-sidebar hidden">
+            <p>Chưa có bài viết nào được lưu.</p>
+            <small>Hãy mở bài viết trên Douyin và bấm "Lưu & Xem Offline" từ Extension.</small>
+          </div>
+
+          <div class="sidebar-footer">
+            <button id="btn-clear-all" class="btn-text-danger">Xóa tất cả kho lưu trữ</button>
+          </div>
+        </aside>
+
+        <!-- Main Content Area: Selected Post Details -->
+        <main class="main-content">
+          <!-- Empty State when no post selected -->
+          <div id="empty-state" class="empty-state">
+            <div class="empty-art">📱</div>
+            <h2>Chọn một bài viết từ danh sách bên trái</h2>
+            <p>Toàn bộ nội dung bài viết và các ảnh JPG đã xóa sạch nguồn gốc Douyin được lưu sẵn tại đây. Bạn có thể kiểm tra offline, chỉnh sửa và đăng lên Facebook bất cứ lúc nào!</p>
+          </div>
+
+          <!-- Post View Container (visible when a post is active) -->
+          <div id="post-view" class="post-view hidden">
+            <!-- Post Header -->
+            <header class="post-header-card">
+              <div class="author-block">
+                <img id="view-avatar" class="author-avatar" src="" alt="Avatar" />
+                <div>
+                  <div class="author-name-row">
+                    <h2 id="view-author" class="author-name">Tác giả</h2>
+                    <span id="view-badge-status" class="badge-status status-pending">Chưa đăng FB</span>
+                  </div>
+                  <div class="author-meta-row">
+                    <span class="province-badge-control">
+                      <span class="province-badge" id="view-province-badge">📍 Chưa gắn tỉnh</span>
+                      <button id="btn-edit-province" class="btn-inline-edit" title="Gắn thẻ tỉnh thành / khu vực">✎ Đổi tỉnh thành</button>
+                    </span>
+                    <span class="publish-date-control">
+                      <span id="view-time">📅 Ngày tác giả đăng: --</span>
+                      <button id="btn-edit-publish-date" class="btn-inline-edit" title="Nhập ngày đăng thủ công">✎ Sửa ngày</button>
+                    </span>
+                    <span id="view-img-count">🖼️ 0 ảnh JPG</span>
+                    <a id="view-origin-link" href="#" target="_blank" class="origin-link">🔗 Xem link Douyin gốc</a>
+                  </div>
+                </div>
+              </div>
+
+              <div class="header-actions">
+                <label class="toggle-switch-label" title="Đánh dấu trạng thái bài viết">
+                  <input type="checkbox" id="check-published" class="toggle-checkbox" />
+                  <span class="toggle-text">Đã đăng lên Facebook</span>
+                </label>
+                <label class="toggle-switch-label image-processed-toggle" title="Đánh dấu đã hoàn tất chọn, tag và xử lý ảnh">
+                  <input type="checkbox" id="check-images-processed" class="toggle-checkbox" />
+                  <span class="toggle-text">Đã xử lý ảnh</span>
+                </label>
+                <button id="btn-export-zip" class="btn btn-secondary-outline">
+                  <svg viewBox="0 0 24 24" class="btn-icon"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+                  <span>Xuất ZIP ra máy</span>
+                </button>
+                <button id="btn-delete-post" class="btn btn-danger-icon" title="Xóa toàn bộ bài viết này">
+                  <svg viewBox="0 0 24 24" class="btn-icon"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                  <span>Xóa bài</span>
+                </button>
+              </div>
+            </header>
+
+            <!-- Captions Section -->
+            <section class="captions-grid">
+              <!-- English Facebook Post -->
+              <div class="card caption-card">
+                <div class="card-head">
+                  <div class="card-title-flex">
+                    <span class="badge badge-fb">Bài đăng Facebook (Tiếng Anh - DeepSeek AI)</span>
+                    <span id="fb-char-count" class="char-count">0 ký tự</span>
+                  </div>
+                  <button id="btn-copy-fb" class="btn btn-primary-blue">
+                    <svg viewBox="0 0 24 24" class="btn-icon"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+                    <span>📋 Copy bài đăng Facebook</span>
+                  </button>
+                </div>
+                <textarea id="view-eng-caption" class="caption-editor" rows="8" placeholder="Nội dung bài đăng tiếng Anh... Bạn có thể chỉnh sửa tự do tại đây."></textarea>
+              </div>
+
+              <!-- Chinese Caption -->
+              <div class="card caption-card">
+                <div class="card-head">
+                  <span class="badge badge-zh">Caption gốc (Tiếng Trung)</span>
+                  <button id="btn-copy-zh" class="btn btn-secondary-copy">
+                    <span>Copy gốc</span>
+                  </button>
+                </div>
+                <textarea id="view-zh-caption" class="caption-editor readonly" rows="8" readonly></textarea>
+                <label for="view-internal-notes" class="notes-label">Ghi chú nội bộ</label>
+                <textarea id="view-internal-notes" class="caption-editor notes-editor" rows="3" placeholder="Ghi chú để phân loại hoặc xử lý sau... Ghi chú này không được đưa vào bài Facebook."></textarea>
+              </div>
+            </section>
+
+            <!-- Clean JPG Images Gallery -->
+            <section class="gallery-section">
+              <div class="gallery-head">
+                <div>
+                  <h3 class="section-heading">Bộ sưu tập ảnh (.JPG chuẩn - Đã loại bỏ metadata Douyin)</h3>
+                  <p class="section-sub">Bấm vào ảnh để chọn; Shift+bấm chọn cả dải; nút 👁 để phóng to.</p>
+                </div>
+                <div class="gallery-head-actions">
+                  <input id="image-tag-search" class="tag-search-input" type="search" placeholder="🔎 Tìm ảnh theo tag...">
+                  <button id="btn-tag-all-images" class="btn btn-secondary-outline" title="Gắn cùng một nhóm tag cho tất cả ảnh">🏷 Tag tất cả</button>
+                  <button id="btn-save-to-folder" class="btn btn-secondary-outline">📁 Lưu thư mục</button>
+                  <button id="btn-download-all-jpg" class="btn btn-emerald-sm">
+                    <svg viewBox="0 0 24 24" class="btn-icon"><path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2v9.67z"/></svg>
+                    <span>Tải ${0} ảnh</span>
+                  </button>
+                </div>
+              </div>
+              <div class="image-selection-toolbar">
+                <span id="selected-images-count" class="selection-count">Chưa chọn ảnh</span>
+                <button id="btn-select-all-images" class="btn-compact">Chọn tất cả</button>
+                <button id="btn-clear-image-selection" class="btn-compact">Bỏ chọn</button>
+                <button id="btn-tag-selected-images" class="btn-compact btn-compact-primary" disabled>🏷 Tag ảnh chọn</button>
+                <button id="btn-rename-selected-images" class="btn-compact btn-compact-primary" disabled>✎ Đổi tên</button>
+                <button id="btn-rotate-left-images" class="btn-compact btn-compact-primary" disabled>↶ Xoay trái</button>
+                <button id="btn-rotate-right-images" class="btn-compact btn-compact-primary" disabled>↷ Xoay phải</button>
+                <button id="btn-send-image-app" class="btn-compact btn-compact-primary" disabled>↗ Gửi sang Xử lý ảnh V2</button>
+                <button id="btn-optimize-selected-images" class="btn-compact btn-compact-primary" disabled>◫ Tạo ảnh xem nhẹ</button>
+                <button id="btn-delete-selected-images" class="btn-compact btn-compact-danger" disabled>🗑 Xóa ảnh chọn</button>
+              </div>
+              <div id="view-image-grid" class="image-gallery-grid">
+                <!-- Dynamically populated images -->
+              </div>
+            </section>
+          </div>
+        </main>
+      </div>
+
+      <!-- VIEW 2: Kho ảnh toàn cục (Global Photos Gallery - Hướng A, B, C) -->
+      <div id="view-global-photos-pane" class="studio-view-pane hidden">
+        <div class="global-gallery-container">
+          <!-- Toolbar & Filter Bar -->
+          <div class="global-gallery-toolbar">
+            <div class="global-search-row">
+              <div class="global-search-box">
+                <span class="search-icon">🔍</span>
+                <input type="text" id="global-search-input" class="global-search-input" placeholder="Tìm ảnh theo tỉnh thành (Phú Quốc, Đà Lạt...), hashtag (#biển), tên file, tác giả..." />
+                <button id="btn-clear-global-search" class="btn-clear-search hidden" title="Xóa tìm kiếm">&times;</button>
+              </div>
+              <div class="global-filter-chips">
+                <button class="global-chip active" data-filter="all">🌟 Tất cả (<span id="global-count-all">0</span>)</button>
+                <button class="global-chip chip-fav" data-filter="favorites">⭐ Yêu thích (<span id="global-count-fav">0</span>)</button>
+                <button class="global-chip" data-filter="has-tags">🏷️ Đã có tag (<span id="global-count-tagged">0</span>)</button>
+                <button class="global-chip" data-filter="no-tags">📁 Chưa có tag (<span id="global-count-untagged">0</span>)</button>
+              </div>
+              <div class="global-select-group">
+                <select id="global-post-filter" class="global-select" title="Lọc theo bài viết">
+                  <option value="all">Tất cả bài viết</option>
+                </select>
+                <select id="global-sort-select" class="global-select" title="Sắp xếp ảnh">
+                  <option value="newest">Mới nhất trước</option>
+                  <option value="oldest">Cũ nhất trước</option>
+                  <option value="favorite-first">⭐ Yêu thích lên đầu</option>
+                  <option value="most-tags">Nhiều tag nhất</option>
+                  <option value="name-asc">Tên file (A-Z)</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Thẻ Tag To: Phân loại Tỉnh thành / Khu vực -->
+            <div class="global-province-section">
+              <div class="province-header">
+                <div class="province-header-left">
+                  <span class="province-title">📍 Thẻ Tag To (Tỉnh thành / Khu vực):</span>
+                  <button id="btn-reset-province-filter" class="btn-reset-tag hidden">✕ Bỏ lọc tỉnh (<span id="active-province-name"></span>)</button>
+                </div>
+                <span id="province-cloud-stats" class="province-cloud-stats">0 tỉnh thành</span>
+              </div>
+              <div id="global-province-cloud" class="global-province-cloud">
+                <!-- Dynamically populated province chips -->
+              </div>
+            </div>
+
+            <!-- Hướng B: Đám mây thẻ / Tag Cloud 1 chạm -->
+            <div class="global-tag-cloud-section">
+              <div class="tag-cloud-header">
+                <div class="tag-cloud-header-left">
+                  <span class="tag-cloud-title">🏷️ Đám mây thẻ hashtag (Bấm 1 chạm để lọc ngay):</span>
+                  <button id="btn-reset-tag-filter" class="btn-reset-tag hidden">✕ Bỏ lọc tag (<span id="active-tag-name"></span>)</button>
+                </div>
+                <span id="tag-cloud-stats" class="tag-cloud-stats">0 tag</span>
+              </div>
+              <div id="global-tag-cloud-list" class="global-tag-cloud-list">
+                <!-- Dynamically populated tag chips -->
+              </div>
+            </div>
+
+            <!-- Hướng C: Thao tác hàng loạt (Batch Toolbar) & Thống kê -->
+            <div class="global-actions-bar">
+              <div class="global-stats-text">
+                <span id="global-visible-count">Đang hiển thị 0 ảnh</span>
+              </div>
+              <div class="global-batch-tools">
+                <span id="global-selected-count" class="batch-count">Chưa chọn ảnh</span>
+                <button id="btn-global-select-all" class="btn-compact">Chọn tất cả</button>
+                <button id="btn-global-deselect" class="btn-compact">Bỏ chọn</button>
+                <button id="btn-global-batch-fav" class="btn-compact btn-compact-fav" disabled>⭐ Yêu thích</button>
+                <button id="btn-global-batch-province" class="btn-compact btn-compact-primary" disabled>📍 Gắn tỉnh thành</button>
+                <button id="btn-global-batch-tag" class="btn-compact btn-compact-primary" disabled>🏷 Gắn tag</button>
+                <button id="btn-global-batch-rot-left" class="btn-compact btn-compact-primary" disabled>↶ Xoay trái</button>
+                <button id="btn-global-batch-rot-right" class="btn-compact btn-compact-primary" disabled>↷ Xoay phải</button>
+                <button id="btn-global-batch-send-v2" class="btn-compact btn-compact-primary" disabled>↗ Gửi App V2</button>
+                <button id="btn-global-batch-zip" class="btn-compact btn-compact-emerald" disabled>📦 Tải ZIP</button>
+                <button id="btn-global-batch-delete" class="btn-compact btn-compact-danger" disabled>🗑 Xóa ảnh chọn</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Lưới ảnh toàn cục (Direction A) -->
+          <div id="global-photo-grid" class="global-photo-grid">
+            <!-- Dynamically populated global photos -->
+          </div>
+
+          <!-- Trạng thái trống của Kho ảnh toàn cục -->
+          <div id="global-empty-state" class="global-empty-state hidden">
+            <div class="empty-art">🔍</div>
+            <h3>Không tìm thấy ảnh phù hợp</h3>
+            <p id="global-empty-msg">Thử tìm kiếm với từ khóa khác hoặc bấm đặt lại các bộ lọc bên trên.</p>
+            <button id="btn-reset-global-filters" class="btn btn-secondary-outline">🔄 Đặt lại toàn bộ bộ lọc</button>
+          </div>
         </div>
-        <div class="filter-chips">
-          <button class="filter-chip active" data-filter="all">Tất cả (<span id="count-all">0</span>)</button>
-          <button class="filter-chip" data-filter="pending">Chưa đăng (<span id="count-pending">0</span>)</button>
-          <button class="filter-chip" data-filter="published">Đã đăng (<span id="count-published">0</span>)</button>
-        </div>
       </div>
-
-      <!-- Post List -->
-      <div id="posts-list" class="posts-list">
-        <!-- Dynamically injected post items -->
-      </div>
-
-      <div id="empty-sidebar" class="empty-sidebar hidden">
-        <p>Chưa có bài viết nào được lưu.</p>
-        <small>Hãy mở bài viết trên Douyin và bấm "Lưu & Xem Offline" từ Extension.</small>
-      </div>
-
-      <div class="sidebar-footer">
-        <button id="btn-clear-all" class="btn-text-danger">Xóa tất cả kho lưu trữ</button>
-      </div>
-    </aside>
-
-    <!-- Main Content Area: Selected Post Details -->
-    <main class="main-content">
-      <!-- Empty State when no post selected -->
-      <div id="empty-state" class="empty-state">
-        <div class="empty-art">📱</div>
-        <h2>Chọn một bài viết từ danh sách bên trái</h2>
-        <p>Toàn bộ nội dung bài viết và các ảnh JPG đã xóa sạch nguồn gốc Douyin được lưu sẵn tại đây. Bạn có thể kiểm tra offline, chỉnh sửa và đăng lên Facebook bất cứ lúc nào!</p>
-      </div>
-
-      <!-- Post View Container (visible when a post is active) -->
-      <div id="post-view" class="post-view hidden">
-        <!-- Post Header -->
-        <header class="post-header-card">
-          <div class="author-block">
-            <img id="view-avatar" class="author-avatar" src="" alt="Avatar" />
-            <div>
-              <div class="author-name-row">
-                <h2 id="view-author" class="author-name">Tác giả</h2>
-                <span id="view-badge-status" class="badge-status status-pending">Chưa đăng FB</span>
-              </div>
-              <div class="author-meta-row">
-                <span class="publish-date-control">
-                  <span id="view-time">📅 Ngày tác giả đăng: --</span>
-                  <button id="btn-edit-publish-date" class="btn-inline-edit" title="Nhập ngày đăng thủ công">✎ Sửa ngày</button>
-                </span>
-                <span id="view-img-count">🖼️ 0 ảnh JPG</span>
-                <a id="view-origin-link" href="#" target="_blank" class="origin-link">🔗 Xem link Douyin gốc</a>
-              </div>
-            </div>
-          </div>
-
-          <div class="header-actions">
-            <label class="toggle-switch-label" title="Đánh dấu trạng thái bài viết">
-              <input type="checkbox" id="check-published" class="toggle-checkbox" />
-              <span class="toggle-text">Đã đăng lên Facebook</span>
-            </label>
-            <label class="toggle-switch-label image-processed-toggle" title="Đánh dấu đã hoàn tất chọn, tag và xử lý ảnh">
-              <input type="checkbox" id="check-images-processed" class="toggle-checkbox" />
-              <span class="toggle-text">Đã xử lý ảnh</span>
-            </label>
-            <button id="btn-export-zip" class="btn btn-secondary-outline">
-              <svg viewBox="0 0 24 24" class="btn-icon"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
-              <span>Xuất ZIP ra máy</span>
-            </button>
-            <button id="btn-delete-post" class="btn btn-danger-icon" title="Xóa toàn bộ bài viết này">
-              <svg viewBox="0 0 24 24" class="btn-icon"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
-              <span>Xóa bài</span>
-            </button>
-          </div>
-        </header>
-
-        <!-- Captions Section -->
-        <section class="captions-grid">
-          <!-- English Facebook Post -->
-          <div class="card caption-card">
-            <div class="card-head">
-              <div class="card-title-flex">
-                <span class="badge badge-fb">Bài đăng Facebook (Tiếng Anh - DeepSeek AI)</span>
-                <span id="fb-char-count" class="char-count">0 ký tự</span>
-              </div>
-              <button id="btn-copy-fb" class="btn btn-primary-blue">
-                <svg viewBox="0 0 24 24" class="btn-icon"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
-                <span>📋 Copy bài đăng Facebook</span>
-              </button>
-            </div>
-            <textarea id="view-eng-caption" class="caption-editor" rows="8" placeholder="Nội dung bài đăng tiếng Anh... Bạn có thể chỉnh sửa tự do tại đây."></textarea>
-          </div>
-
-          <!-- Chinese Caption -->
-          <div class="card caption-card">
-            <div class="card-head">
-              <span class="badge badge-zh">Caption gốc (Tiếng Trung)</span>
-              <button id="btn-copy-zh" class="btn btn-secondary-copy">
-                <span>Copy gốc</span>
-              </button>
-            </div>
-            <textarea id="view-zh-caption" class="caption-editor readonly" rows="8" readonly></textarea>
-            <label for="view-internal-notes" class="notes-label">Ghi chú nội bộ</label>
-            <textarea id="view-internal-notes" class="caption-editor notes-editor" rows="3" placeholder="Ghi chú để phân loại hoặc xử lý sau... Ghi chú này không được đưa vào bài Facebook."></textarea>
-          </div>
-        </section>
-
-        <!-- Clean JPG Images Gallery -->
-        <section class="gallery-section">
-          <div class="gallery-head">
-            <div>
-              <h3 class="section-heading">Bộ sưu tập ảnh (.JPG chuẩn - Đã loại bỏ metadata Douyin)</h3>
-              <p class="section-sub">Bấm vào ảnh để chọn; Shift+bấm chọn cả dải; nút 👁 để phóng to.</p>
-            </div>
-            <div class="gallery-head-actions">
-              <input id="image-tag-search" class="tag-search-input" type="search" placeholder="🔎 Tìm ảnh theo tag...">
-              <button id="btn-tag-all-images" class="btn btn-secondary-outline" title="Gắn cùng một nhóm tag cho tất cả ảnh">🏷 Tag tất cả</button>
-              <button id="btn-save-to-folder" class="btn btn-secondary-outline">📁 Lưu thư mục</button>
-              <button id="btn-download-all-jpg" class="btn btn-emerald-sm">
-                <svg viewBox="0 0 24 24" class="btn-icon"><path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2v9.67z"/></svg>
-                <span>Tải ${0} ảnh</span>
-              </button>
-            </div>
-          </div>
-          <div class="image-selection-toolbar">
-            <span id="selected-images-count" class="selection-count">Chưa chọn ảnh</span>
-            <button id="btn-select-all-images" class="btn-compact">Chọn tất cả</button>
-            <button id="btn-clear-image-selection" class="btn-compact">Bỏ chọn</button>
-            <button id="btn-tag-selected-images" class="btn-compact btn-compact-primary" disabled>🏷 Tag ảnh chọn</button>
-            <button id="btn-rename-selected-images" class="btn-compact btn-compact-primary" disabled>✎ Đổi tên</button>
-            <button id="btn-rotate-left-images" class="btn-compact btn-compact-primary" disabled>↶ Xoay trái</button>
-            <button id="btn-rotate-right-images" class="btn-compact btn-compact-primary" disabled>↷ Xoay phải</button>
-            <button id="btn-send-image-app" class="btn-compact btn-compact-primary" disabled>↗ Gửi sang Xử lý ảnh V2</button>
-            <button id="btn-optimize-selected-images" class="btn-compact btn-compact-primary" disabled>◫ Tạo ảnh xem nhẹ</button>
-            <button id="btn-delete-selected-images" class="btn-compact btn-compact-danger" disabled>🗑 Xóa ảnh chọn</button>
-          </div>
-          <div id="view-image-grid" class="image-gallery-grid">
-            <!-- Dynamically populated images -->
-          </div>
-        </section>
-      </div>
-    </main>
+    </div>
   </div>
 
   <!-- Lightbox Viewer Modal -->
@@ -187,7 +320,9 @@
       <img id="lightbox-img" src="" alt="Fullscreen View" />
       <div class="lightbox-toolbar">
         <span id="lightbox-counter">1 / 1</span>
+        <span id="lightbox-filename" class="lightbox-filename"></span>
         <div class="lightbox-actions">
+          <button id="lightbox-fav-btn" class="btn-lightbox btn-lightbox-star">⭐ Yêu thích</button>
           <button id="lightbox-copy-btn" class="btn-lightbox">📋 Copy ảnh</button>
           <a id="lightbox-dl-btn" href="#" download="" class="btn-lightbox">⬇ Tải JPG này</a>
         </div>
@@ -198,6 +333,8 @@
 
   <div id="image-context-menu" class="image-context-menu hidden" role="menu">
     <button data-action="view">👁 Xem ảnh lớn</button>
+    <button data-action="fav">⭐ Thêm/bỏ yêu thích</button>
+    <button data-action="province">📍 Gắn tỉnh thành</button>
     <button data-action="tag">🏷 Gắn tag</button>
     <button data-action="rename">✎ Đổi tên</button>
     <button data-action="rotate-left">↶ Xoay trái</button>

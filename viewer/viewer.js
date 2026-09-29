@@ -4,6 +4,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const postsListEl = document.getElementById('posts-list');
   const emptySidebarEl = document.getElementById('empty-sidebar');
   const searchInput = document.getElementById('search-input');
+  const provinceFilter = document.getElementById('province-filter');
   const monthFilter = document.getElementById('month-filter');
   const imageProcessFilter = document.getElementById('image-process-filter');
   const filterChips = document.querySelectorAll('.filter-chip');
@@ -19,6 +20,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const viewAvatar = document.getElementById('view-avatar');
   const viewAuthor = document.getElementById('view-author');
   const viewBadgeStatus = document.getElementById('view-badge-status');
+  const viewProvinceBadge = document.getElementById('view-province-badge');
+  const btnEditProvince = document.getElementById('btn-edit-province');
   const viewTime = document.getElementById('view-time');
   const btnEditPublishDate = document.getElementById('btn-edit-publish-date');
   const viewImgCount = document.getElementById('view-img-count');
@@ -60,7 +63,56 @@ document.addEventListener('DOMContentLoaded', async () => {
   const lightboxNextBtn = document.getElementById('lightbox-next');
   const lightboxBody = document.getElementById('lightbox-body');
   const lightboxCopyBtn = document.getElementById('lightbox-copy-btn');
+  const lightboxFavBtn = document.getElementById('lightbox-fav-btn');
+  const lightboxFilename = document.getElementById('lightbox-filename');
   const imageContextMenu = document.getElementById('image-context-menu');
+
+  // ===== TAB NAVIGATION DOM REFERENCES =====
+  const tabBtnPosts = document.getElementById('tab-btn-posts');
+  const tabBtnGlobalPhotos = document.getElementById('tab-btn-global-photos');
+  const navCountPosts = document.getElementById('nav-count-posts');
+  const navCountGlobalPhotos = document.getElementById('nav-count-global-photos');
+  const viewPostsPane = document.getElementById('view-posts-pane');
+  const viewGlobalPhotosPane = document.getElementById('view-global-photos-pane');
+
+  // ===== GLOBAL PHOTOS GALLERY DOM REFERENCES =====
+  const globalSearchInput = document.getElementById('global-search-input');
+  const btnClearGlobalSearch = document.getElementById('btn-clear-global-search');
+  const globalChips = document.querySelectorAll('.global-chip');
+  const globalCountAll = document.getElementById('global-count-all');
+  const globalCountFav = document.getElementById('global-count-fav');
+  const globalCountTagged = document.getElementById('global-count-tagged');
+  const globalCountUntagged = document.getElementById('global-count-untagged');
+  const globalPostFilter = document.getElementById('global-post-filter');
+  const globalSortSelect = document.getElementById('global-sort-select');
+
+  // Province Big Tag Elements
+  const btnResetProvinceFilter = document.getElementById('btn-reset-province-filter');
+  const activeProvinceNameEl = document.getElementById('active-province-name');
+  const provinceCloudStats = document.getElementById('province-cloud-stats');
+  const globalProvinceCloud = document.getElementById('global-province-cloud');
+
+  const btnResetTagFilter = document.getElementById('btn-reset-tag-filter');
+  const activeTagNameEl = document.getElementById('active-tag-name');
+  const tagCloudStats = document.getElementById('tag-cloud-stats');
+  const globalTagCloudList = document.getElementById('global-tag-cloud-list');
+
+  const globalVisibleCount = document.getElementById('global-visible-count');
+  const globalSelectedCount = document.getElementById('global-selected-count');
+  const btnGlobalSelectAll = document.getElementById('btn-global-select-all');
+  const btnGlobalDeselect = document.getElementById('btn-global-deselect');
+  const btnGlobalBatchFav = document.getElementById('btn-global-batch-fav');
+  const btnGlobalBatchProvince = document.getElementById('btn-global-batch-province');
+  const btnGlobalBatchTag = document.getElementById('btn-global-batch-tag');
+  const btnGlobalBatchRotLeft = document.getElementById('btn-global-batch-rot-left');
+  const btnGlobalBatchRotRight = document.getElementById('btn-global-batch-rot-right');
+  const btnGlobalBatchSendV2 = document.getElementById('btn-global-batch-send-v2');
+  const btnGlobalBatchZip = document.getElementById('btn-global-batch-zip');
+  const btnGlobalBatchDelete = document.getElementById('btn-global-batch-delete');
+  const globalPhotoGrid = document.getElementById('global-photo-grid');
+  const globalEmptyState = document.getElementById('global-empty-state');
+  const globalEmptyMsg = document.getElementById('global-empty-msg');
+  const btnResetGlobalFilters = document.getElementById('btn-reset-global-filters');
 
   const toastEl = document.getElementById('toast');
 
@@ -69,6 +121,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   let currentFilter = 'all';
   let searchQuery = '';
   let imageTagQuery = '';
+  let selectedProvince = 'all';
   let selectedMonth = 'all';
   let selectedImageProcess = 'all';
   let activePost = null;
@@ -80,13 +133,26 @@ document.addEventListener('DOMContentLoaded', async () => {
   let notesSaveTimer = null;
   let contextImageIndex = null;
 
+  // ===== Global Photo Gallery State (Hướng A, B, C) =====
+  let currentAppTab = 'posts'; // 'posts' | 'photos'
+  let globalSearchQuery = '';
+  let globalFilter = 'all'; // 'all' | 'favorites' | 'has-tags' | 'no-tags'
+  let globalSelectedPostId = 'all';
+  let globalSort = 'newest';
+  let globalActiveProvince = ''; // filter by Big Tag (Tỉnh thành)
+  let globalActiveTag = '';
+  let selectedGlobalKeys = new Set(); // Set of `${postId}__${imgIndex}`
+  let globalRenderGeneration = 0;
+  let globalImageObserver = null;
+
   // ===== INITIAL LOAD =====
   DouyinFiles.getDirectoryInfo().catch(() => {});
   await refreshPostsList();
 
-  // Check URL param ?id=...
+  // Check URL param ?id=... and ?tab=...
   const urlParams = new URLSearchParams(window.location.search);
   const requestedId = urlParams.get('id');
+  const requestedTab = urlParams.get('tab');
   if (requestedId) {
     const target = allPosts.find(p => p.id === requestedId);
     if (target) {
@@ -98,13 +164,35 @@ document.addEventListener('DOMContentLoaded', async () => {
     selectPost(allPosts[0]);
   }
 
+  if (requestedTab === 'photos') {
+    switchAppTab('photos');
+  }
+
   // ===== REFRESH POSTS LIST =====
   async function refreshPostsList() {
     try {
       allPosts = await DouyinDB.getAllPosts();
+      // Tự động nhận diện Tỉnh thành cho bài chưa gắn thẻ to
+      allPosts.forEach(p => {
+        if (!p.province) {
+          const detected = detectProvinceFromText(p.desc + ' ' + (p.englishCaption || ''));
+          if (detected) {
+            p.province = detected;
+            DouyinDB.savePost(p).catch(() => {});
+          }
+        }
+      });
       updateFilterCounts();
+      updateGlobalCounts();
+      populateProvinceFilter();
       populateMonthFilter();
+      populateGlobalPostFilter();
       renderSidebarList();
+      renderGlobalProvinceCloud();
+      renderGlobalTagCloud();
+      if (currentAppTab === 'photos') {
+        renderGlobalPhotoGrid();
+      }
     } catch (err) {
       console.error('Failed to load posts from IndexedDB:', err);
     }
@@ -126,6 +214,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       // Filter status
       if (currentFilter === 'pending' && p.status === 'published') return false;
       if (currentFilter === 'published' && p.status !== 'published') return false;
+      if (selectedProvince !== 'all') {
+        if (selectedProvince === '__none__' && p.province) return false;
+        if (selectedProvince !== '__none__' && (p.province || '').toLowerCase() !== selectedProvince.toLowerCase()) return false;
+      }
       if (selectedMonth !== 'all' && getPostMonthKey(p) !== selectedMonth) return false;
       if (selectedImageProcess === 'processed' && !p.imageProcessed) return false;
       if (selectedImageProcess === 'unprocessed' && p.imageProcessed) return false;
@@ -135,8 +227,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         const authorMatch = (p.author || '').toLowerCase().includes(q);
         const titleMatch = (p.desc || '').toLowerCase().includes(q);
         const engMatch = (p.englishCaption || '').toLowerCase().includes(q);
+        const provinceMatch = (p.province || '').toLowerCase().includes(q);
         const tagMatch = (p.images || []).some(image => (image.tags || []).some(tag => tag.toLowerCase().includes(q)));
-        if (!authorMatch && !titleMatch && !engMatch && !tagMatch) return false;
+        if (!authorMatch && !titleMatch && !engMatch && !tagMatch && !provinceMatch) return false;
       }
       return true;
     });
@@ -165,6 +258,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           <div class="card-bottom-row">
             <div class="card-statuses">
               <span class="card-badge ${isPub ? 'published' : 'pending'}">${isPub ? 'Đã đăng' : 'Chưa đăng'}</span>
+              ${post.province ? `<span class="card-badge province" title="Tỉnh thành">📍 ${escapeHtml(post.province)}</span>` : ''}
               <span class="card-badge ${post.imageProcessed ? 'processed' : 'unprocessed'}">${post.imageProcessed ? '✓ Đã xử lý' : 'Chưa xử lý'}</span>
             </div>
             <span class="card-count">${(post.images || []).length} ảnh</span>
@@ -195,6 +289,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     viewAvatar.src = post.avatar || '../icons/icon48.png';
     viewTime.innerText = `📅 Ngày tác giả đăng: ${formatPublishedDate(post)}${post.publishDateManual ? ' (thủ công)' : ''}`;
     viewImgCount.innerText = `🖼️ ${(post.images || []).length} ảnh JPG`;
+    updateProvinceBadge();
 
     if (post.sourceUrl || post.url) {
       viewOriginLink.href = post.sourceUrl || post.url;
@@ -354,6 +449,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             <span class="photo-index-tag">#${idx + 1}</span>
             <div class="photo-tags">${renderTagChips(imgObj.tags)}</div>
             <div class="photo-actions-overlay">
+              <button type="button" class="btn-photo-action fav-img-btn ${imgObj.favorite ? 'favorited' : ''}" title="${imgObj.favorite ? 'Bỏ yêu thích' : 'Yêu thích'}" aria-label="Yêu thích">⭐</button>
               <button type="button" class="btn-photo-action view-img-btn" title="Xem ảnh lớn" aria-label="Xem ảnh lớn">👁</button>
               <button type="button" class="btn-photo-action tag-img-btn" title="Gắn tag" aria-label="Gắn tag">🏷</button>
               <button type="button" class="btn-photo-action copy-img-btn" title="Sao chép ảnh" aria-label="Sao chép ảnh">📋</button>
@@ -389,6 +485,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             syncImageSelectionUi();
           }
           openImageContextMenu(e.clientX, e.clientY, idx);
+        });
+
+        card.querySelector('.fav-img-btn')?.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          await toggleImageFavorite(activePost.id, idx);
         });
 
         card.querySelector('.view-img-btn').addEventListener('click', (e) => {
@@ -694,8 +795,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  function openImageContextMenu(x, y, imageIndex) {
+  let contextGlobalKey = null;
+
+  function openImageContextMenu(x, y, imageIndex, globalKey = null) {
     contextImageIndex = imageIndex;
+    contextGlobalKey = globalKey;
     imageContextMenu.classList.remove('hidden');
     const width = imageContextMenu.offsetWidth;
     const height = imageContextMenu.offsetHeight;
@@ -706,15 +810,59 @@ document.addEventListener('DOMContentLoaded', async () => {
   function closeImageContextMenu() {
     imageContextMenu.classList.add('hidden');
     contextImageIndex = null;
+    contextGlobalKey = null;
   }
 
   imageContextMenu.addEventListener('click', async (event) => {
     const button = event.target.closest('button[data-action]');
-    if (!button || contextImageIndex === null) return;
+    if (!button || (contextImageIndex === null && !contextGlobalKey)) return;
     const action = button.dataset.action;
     const imageIndex = contextImageIndex;
+    const globalKey = contextGlobalKey;
     closeImageContextMenu();
+
+    if (globalKey || currentAppTab === 'photos') {
+      const activeKey = globalKey || (selectedGlobalKeys.size ? [...selectedGlobalKeys][0] : null);
+      if (action === 'view') {
+        const idx = currentFilteredGlobalImages.findIndex(i => i.key === activeKey);
+        if (idx !== -1) openLightbox(idx, currentFilteredGlobalImages);
+      } else if (action === 'fav') {
+        if (activeKey) {
+          const [postId, idxStr] = activeKey.split('__');
+          await toggleImageFavorite(postId, Number(idxStr));
+        }
+      } else if (action === 'province') {
+        await setBatchProvinceForSelected();
+      } else if (action === 'tag') {
+        btnGlobalBatchTag.click();
+      } else if (action === 'rename') {
+        await renameSelectedGlobalImages();
+      } else if (action === 'rotate-left') {
+        await rotateSelectedGlobalImages(-90);
+      } else if (action === 'rotate-right') {
+        await rotateSelectedGlobalImages(90);
+      } else if (action === 'send-image-app') {
+        await sendSelectedGlobalImagesToAppV2();
+      } else if (action === 'delete') {
+        btnGlobalBatchDelete.click();
+      } else if (action === 'copy') {
+        if (activeKey) {
+          const [postId, idxStr] = activeKey.split('__');
+          const p = allPosts.find(item => item.id === postId);
+          const img = p?.images?.[Number(idxStr)];
+          if (img?.dataUrl) await copyImageToClipboard(img.dataUrl);
+        }
+      }
+      return;
+    }
+
     if (action === 'view') openLightbox(imageIndex);
+    else if (action === 'fav') {
+      if (activePost?.id) await toggleImageFavorite(activePost.id, imageIndex);
+    }
+    else if (action === 'province') {
+      if (activePost) await editPostProvince(activePost);
+    }
     else if (action === 'tag') btnTagSelectedImages.click();
     else if (action === 'rename') btnRenameSelectedImages.click();
     else if (action === 'rotate-left') btnRotateLeftImages.click();
@@ -855,15 +1003,36 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // ===== LIGHTBOX =====
-  function openLightbox(index) {
-    if (!activePost || !activePost.images || activePost.images.length === 0) return;
-    activeLightboxIndex = index;
-    const current = activePost.images[activeLightboxIndex];
-    lightboxImg.src = current.dataUrl;
-    lightboxCounter.innerText = `${activeLightboxIndex + 1} / ${activePost.images.length}`;
-    lightboxDlBtn.href = current.dataUrl;
-    lightboxDlBtn.download = current.filename || `photo_${activeLightboxIndex + 1}.jpg`;
+  let currentLightboxList = null;
+
+  function openLightbox(index, customList = null) {
+    currentLightboxList = customList;
+    const list = currentLightboxList || activePost?.images || [];
+    if (!list.length) return;
+    activeLightboxIndex = Math.max(0, Math.min(index, list.length - 1));
+    updateLightboxContent();
     lightbox.classList.add('active');
+  }
+
+  function updateLightboxContent() {
+    const list = currentLightboxList || activePost?.images || [];
+    if (!list.length) return;
+    const current = list[activeLightboxIndex];
+    const dataUrl = current.dataUrl || (current.image && current.image.dataUrl) || '';
+    lightboxImg.src = dataUrl;
+    lightboxCounter.innerText = `${activeLightboxIndex + 1} / ${list.length}`;
+    const filename = current.filename || (current.image && current.image.filename) || `photo_${activeLightboxIndex + 1}.jpg`;
+    if (lightboxFilename) {
+      lightboxFilename.innerText = filename ? `— ${filename}` : '';
+    }
+    lightboxDlBtn.href = dataUrl;
+    lightboxDlBtn.download = filename;
+
+    if (lightboxFavBtn) {
+      const isFav = Boolean(current.favorite || (current.image && current.image.favorite));
+      lightboxFavBtn.className = `btn-lightbox btn-lightbox-star ${isFav ? 'favorited' : ''}`;
+      lightboxFavBtn.innerText = isFav ? '⭐ Đã thích' : '⭐ Yêu thích';
+    }
   }
 
   window.closeLightbox = function() {
@@ -871,21 +1040,31 @@ document.addEventListener('DOMContentLoaded', async () => {
   };
 
   window.changeLightbox = function(dir) {
-    if (!activePost || !activePost.images) return;
-    const total = activePost.images.length;
+    const list = currentLightboxList || activePost?.images || [];
+    if (!list.length) return;
+    const total = list.length;
     activeLightboxIndex = (activeLightboxIndex + dir + total) % total;
-    const current = activePost.images[activeLightboxIndex];
-    lightboxImg.src = current.dataUrl;
-    lightboxCounter.innerText = `${activeLightboxIndex + 1} / ${total}`;
-    lightboxDlBtn.href = current.dataUrl;
-    lightboxDlBtn.download = current.filename || `photo_${activeLightboxIndex + 1}.jpg`;
+    updateLightboxContent();
   };
 
   window.copyCurrentLightboxImage = async function() {
-    if (!activePost || !activePost.images) return;
-    const current = activePost.images[activeLightboxIndex];
-    await copyImageToClipboard(current.dataUrl);
+    const list = currentLightboxList || activePost?.images || [];
+    if (!list.length) return;
+    const current = list[activeLightboxIndex];
+    const dataUrl = current.dataUrl || (current.image && current.image.dataUrl);
+    if (dataUrl) await copyImageToClipboard(dataUrl);
   };
+
+  lightboxFavBtn?.addEventListener('click', async () => {
+    const list = currentLightboxList || activePost?.images || [];
+    if (!list.length) return;
+    const item = list[activeLightboxIndex];
+    const postId = item.postId || activePost?.id;
+    const imgIdx = item.imageIndex !== undefined ? item.imageIndex : activeLightboxIndex;
+    if (!postId) return;
+    await toggleImageFavorite(postId, imgIdx);
+    updateLightboxContent();
+  });
 
   lightboxCloseBtn.addEventListener('click', window.closeLightbox);
   lightboxPrevBtn.addEventListener('click', () => window.changeLightbox(-1));
@@ -1209,5 +1388,1020 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!timestamp) return '';
     const date = new Date(timestamp * 1000);
     return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`;
+  }
+
+  // =========================================================================
+  // ===== HƯỚNG A, B, C: KHO ẢNH TOÀN CỤC & TÌM KIẾM NHANH (GLOBAL GALLERY) =====
+  // =========================================================================
+
+  // ===== TAB SWITCHING =====
+  function switchAppTab(tab) {
+    currentAppTab = tab;
+    if (tab === 'posts') {
+      tabBtnPosts.classList.add('active');
+      tabBtnGlobalPhotos.classList.remove('active');
+      viewPostsPane.classList.remove('hidden');
+      viewGlobalPhotosPane.classList.add('hidden');
+    } else {
+      tabBtnPosts.classList.remove('active');
+      tabBtnGlobalPhotos.classList.add('active');
+      viewPostsPane.classList.add('hidden');
+      viewGlobalPhotosPane.classList.remove('hidden');
+      renderGlobalTagCloud();
+      renderGlobalPhotoGrid();
+    }
+  }
+
+  tabBtnPosts.addEventListener('click', () => switchAppTab('posts'));
+  tabBtnGlobalPhotos.addEventListener('click', () => switchAppTab('photos'));
+
+  // ===== UPDATE GLOBAL COUNTS =====
+  function updateGlobalCounts() {
+    navCountPosts.innerText = allPosts.length;
+    let totalPhotos = 0;
+    let totalFav = 0;
+    let totalTagged = 0;
+    let totalUntagged = 0;
+
+    allPosts.forEach(post => {
+      (post.images || []).forEach(img => {
+        totalPhotos++;
+        if (img.favorite) totalFav++;
+        if ((img.tags || []).length > 0) totalTagged++;
+        else totalUntagged++;
+      });
+    });
+
+    navCountGlobalPhotos.innerText = totalPhotos;
+    globalCountAll.innerText = totalPhotos;
+    globalCountFav.innerText = totalFav;
+    globalCountTagged.innerText = totalTagged;
+    globalCountUntagged.innerText = totalUntagged;
+  }
+
+  // ===== POPULATE GLOBAL POST FILTER =====
+  function populateGlobalPostFilter() {
+    const previous = globalSelectedPostId;
+    let html = `<option value="all">Tất cả bài viết (${allPosts.length})</option>`;
+    allPosts.forEach(post => {
+      const title = (post.desc || post.author || 'Bài viết').replace(/\s+/g, ' ').slice(0, 32);
+      const imgCount = (post.images || []).length;
+      html += `<option value="${post.id}">@${escapeHtml(post.author || 'Tác giả')}: ${escapeHtml(title)} (${imgCount} ảnh)</option>`;
+    });
+    globalPostFilter.innerHTML = html;
+    if (allPosts.some(p => p.id === previous)) {
+      globalSelectedPostId = previous;
+      globalPostFilter.value = previous;
+    } else {
+      globalSelectedPostId = 'all';
+      globalPostFilter.value = 'all';
+    }
+  }
+
+  // ===== HƯỚNG B: ĐÁM MÂY THẺ (TAG CLOUD & 1-CLICK FILTER) =====
+  function renderGlobalTagCloud() {
+    const tagCounts = new Map();
+    let totalUsage = 0;
+
+    allPosts.forEach(post => {
+      (post.images || []).forEach(img => {
+        (img.tags || []).forEach(tag => {
+          const clean = String(tag || '').trim().toLowerCase();
+          if (clean) {
+            tagCounts.set(clean, (tagCounts.get(clean) || 0) + 1);
+            totalUsage++;
+          }
+        });
+      });
+    });
+
+    const sortedTags = [...tagCounts.entries()].sort((a, b) => b[1] - a[1]);
+    tagCloudStats.innerText = `${sortedTags.length} tag (${totalUsage} lượt)`;
+
+    if (globalActiveTag) {
+      btnResetTagFilter.classList.remove('hidden');
+      activeTagNameEl.innerText = `#${globalActiveTag}`;
+    } else {
+      btnResetTagFilter.classList.add('hidden');
+    }
+
+    if (sortedTags.length === 0) {
+      globalTagCloudList.innerHTML = `<span style="font-size:11px;color:var(--text-muted);padding:4px 0">Chưa có tag nào trong kho. Hãy bấm vào từng ảnh hoặc dùng nút "🏷 Tag tất cả" để gắn hashtag!</span>`;
+      return;
+    }
+
+    globalTagCloudList.innerHTML = sortedTags.map(([tag, count]) => {
+      const isActive = globalActiveTag && globalActiveTag.toLowerCase() === tag.toLowerCase();
+      return `
+        <button type="button" class="cloud-tag-chip ${isActive ? 'active' : ''}" data-tag="${escapeHtml(tag)}">
+          #${escapeHtml(tag)} <span class="cloud-tag-count">(${count})</span>
+        </button>
+      `;
+    }).join('');
+
+    globalTagCloudList.querySelectorAll('.cloud-tag-chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tag = btn.dataset.tag;
+        if (globalActiveTag === tag) {
+          globalActiveTag = '';
+        } else {
+          globalActiveTag = tag;
+        }
+        renderGlobalTagCloud();
+        renderGlobalPhotoGrid();
+      });
+    });
+  }
+
+  btnResetTagFilter.addEventListener('click', () => {
+    globalActiveTag = '';
+    renderGlobalTagCloud();
+    renderGlobalPhotoGrid();
+  });
+
+  // ===== HƯỚNG A: GET FILTERED GLOBAL IMAGES =====
+  function getFilteredGlobalImages() {
+    const list = [];
+    allPosts.forEach(post => {
+      const postProv = post.province || detectProvinceFromText((post.desc || '') + ' ' + (post.englishCaption || ''));
+      (post.images || []).forEach((img, idx) => {
+        list.push({
+          postId: post.id,
+          province: postProv,
+          postAuthor: post.author || 'Tác giả',
+          postTitle: post.desc || '',
+          postAvatar: post.avatar || '../icons/icon48.png',
+          postDate: formatPublishedDate(post),
+          postTimestamp: getReliablePostTimestamp(post) || (post.savedAt ? Math.floor(post.savedAt / 1000) : 0),
+          imageIndex: idx,
+          image: img,
+          key: `${post.id}__${idx}`
+        });
+      });
+    });
+
+    let filtered = list;
+
+    // Filter by post
+    if (globalSelectedPostId !== 'all') {
+      filtered = filtered.filter(item => item.postId === globalSelectedPostId);
+    }
+
+    // Filter active province from Province Cloud (Thẻ tag to)
+    if (globalActiveProvince) {
+      if (globalActiveProvince === '__none__') {
+        filtered = filtered.filter(item => !item.province);
+      } else {
+        const targetProv = globalActiveProvince.toLowerCase();
+        filtered = filtered.filter(item => (item.province || '').toLowerCase() === targetProv);
+      }
+    }
+
+    // Filter chips
+    if (globalFilter === 'favorites') {
+      filtered = filtered.filter(item => Boolean(item.image.favorite));
+    } else if (globalFilter === 'has-tags') {
+      filtered = filtered.filter(item => (item.image.tags || []).length > 0);
+    } else if (globalFilter === 'no-tags') {
+      filtered = filtered.filter(item => !(item.image.tags || []).length);
+    }
+
+    // Filter active tag from Tag Cloud
+    if (globalActiveTag) {
+      const targetTag = globalActiveTag.toLowerCase();
+      filtered = filtered.filter(item => (item.image.tags || []).some(t => t.toLowerCase() === targetTag));
+    }
+
+    // Search query
+    if (globalSearchQuery) {
+      const q = globalSearchQuery.toLowerCase();
+      filtered = filtered.filter(item => {
+        const matchFile = (item.image.filename || '').toLowerCase().includes(q);
+        const matchTags = (item.image.tags || []).some(t => t.toLowerCase().includes(q));
+        const matchAuthor = (item.postAuthor || '').toLowerCase().includes(q);
+        const matchTitle = (item.postTitle || '').toLowerCase().includes(q);
+        const matchProv = (item.province || '').toLowerCase().includes(q);
+        return matchFile || matchTags || matchAuthor || matchTitle || matchProv;
+      });
+    }
+
+    // Sort
+    if (globalSort === 'newest') {
+      filtered.sort((a, b) => b.postTimestamp - a.postTimestamp || a.imageIndex - b.imageIndex);
+    } else if (globalSort === 'oldest') {
+      filtered.sort((a, b) => a.postTimestamp - b.postTimestamp || a.imageIndex - b.imageIndex);
+    } else if (globalSort === 'favorite-first') {
+      filtered.sort((a, b) => (b.image.favorite ? 1 : 0) - (a.image.favorite ? 1 : 0) || b.postTimestamp - a.postTimestamp);
+    } else if (globalSort === 'most-tags') {
+      filtered.sort((a, b) => ((b.image.tags || []).length) - ((a.image.tags || []).length));
+    } else if (globalSort === 'name-asc') {
+      filtered.sort((a, b) => (a.image.filename || '').localeCompare(b.image.filename || ''));
+    }
+
+    return filtered;
+  }
+
+  // ===== HƯỚNG A: RENDER GLOBAL PHOTO GRID =====
+  let currentFilteredGlobalImages = [];
+
+  function renderGlobalPhotoGrid() {
+    const renderGen = ++globalRenderGeneration;
+    if (globalImageObserver) globalImageObserver.disconnect();
+
+    currentFilteredGlobalImages = getFilteredGlobalImages();
+    const totalCount = currentFilteredGlobalImages.length;
+    const uniquePostsCount = new Set(currentFilteredGlobalImages.map(item => item.postId)).size;
+
+    globalVisibleCount.innerText = `Hiển thị ${totalCount} ảnh (từ ${uniquePostsCount} bài viết)`;
+
+    if (totalCount === 0) {
+      globalPhotoGrid.innerHTML = '';
+      globalEmptyState.classList.remove('hidden');
+      if (globalSearchQuery || globalActiveTag || globalFilter !== 'all' || globalSelectedPostId !== 'all') {
+        globalEmptyMsg.innerText = 'Không có bức ảnh nào khớp với bộ lọc đang chọn. Thử bấm đặt lại bộ lọc bên dưới.';
+      } else {
+        globalEmptyMsg.innerText = 'Kho ảnh đang trống. Hãy dùng tiện ích để bóc tách và lưu các bài viết từ Douyin.';
+      }
+      syncGlobalBatchToolbar();
+      return;
+    }
+
+    globalEmptyState.classList.add('hidden');
+    globalPhotoGrid.innerHTML = '';
+
+    const pendingSources = new WeakMap();
+    globalImageObserver = new IntersectionObserver((entries, observer) => {
+      entries.forEach(entry => {
+        if (!entry.isIntersecting) return;
+        const img = entry.target;
+        const source = pendingSources.get(img);
+        if (source) img.src = source;
+        pendingSources.delete(img);
+        observer.unobserve(img);
+      });
+    }, { rootMargin: '600px 0px' });
+
+    let nextIndex = 0;
+    const renderBatch = () => {
+      if (renderGen !== globalRenderGeneration) return;
+
+      const fragment = document.createDocumentFragment();
+      const batchEnd = Math.min(nextIndex + 12, totalCount);
+
+      for (; nextIndex < batchEnd; nextIndex++) {
+        const item = currentFilteredGlobalImages[nextIndex];
+        const { postId, imageIndex, image: imgObj, key } = item;
+        const imgSrc = imgObj.thumbnailDataUrl || imgObj.dataUrl;
+        const isSelected = selectedGlobalKeys.has(key);
+        const isFav = Boolean(imgObj.favorite);
+
+        const card = document.createElement('div');
+        card.className = `global-photo-card ${isSelected ? 'selected' : ''}`;
+        card.dataset.key = key;
+
+        card.innerHTML = `
+          <div class="global-card-thumb-wrap">
+            <input type="checkbox" class="global-card-checkbox" ${isSelected ? 'checked' : ''} aria-label="Chọn ảnh">
+            <button type="button" class="favorite-star-btn ${isFav ? 'favorited' : ''}" title="${isFav ? 'Bỏ yêu thích' : '⭐ Thêm vào ảnh yêu thích'}" aria-label="Yêu thích">⭐</button>
+            ${item.province ? `<span class="global-card-province-badge" title="Lọc theo tỉnh thành: ${escapeHtml(item.province)}" data-province="${escapeHtml(item.province)}">📍 ${escapeHtml(item.province)}</span>` : ''}
+            <img class="global-card-thumb" alt="${escapeHtml(imgObj.filename || `photo_${imageIndex + 1}.jpg`)}" loading="lazy" decoding="async" />
+            <div class="global-card-actions-overlay">
+              <button type="button" class="btn-card-action view-btn" title="Xem ảnh lớn">👁</button>
+              <button type="button" class="btn-card-action tag-btn" title="Gắn tag">🏷</button>
+              <button type="button" class="btn-card-action copy-btn" title="Sao chép ảnh">📋</button>
+              <a class="btn-card-action dl-btn" href="#" download="${escapeHtml(imgObj.filename || `photo_${imageIndex + 1}.jpg`)}" title="Tải ảnh">⬇</a>
+            </div>
+          </div>
+          <div class="global-card-tags">
+            ${(imgObj.tags || []).slice(0, 3).map(t => `<span class="global-card-tag" data-tag="${escapeHtml(t)}">#${escapeHtml(t)}</span>`).join('')}
+            ${(imgObj.tags || []).length > 3 ? `<span class="global-card-tag" title="${escapeHtml((imgObj.tags || []).map(t => `#${t}`).join(' '))}">+${imgObj.tags.length - 3}</span>` : ''}
+          </div>
+          <div class="global-card-meta">
+            <div class="global-card-filename" title="${escapeHtml(imgObj.filename || `photo_${imageIndex + 1}.jpg`)}">${escapeHtml(imgObj.filename || `photo_${imageIndex + 1}.jpg`)}</div>
+            <div class="global-card-source-row">
+              <div class="global-card-author-info">
+                <img class="global-card-avatar" src="${item.postAvatar}" alt="Avatar">
+                <span class="global-card-author" title="@${escapeHtml(item.postAuthor)}: ${escapeHtml(item.postTitle)}">@${escapeHtml(item.postAuthor)}</span>
+              </div>
+              <button type="button" class="btn-jump-post" title="Chuyển sang Quản lý bài viết và mở bài này">🔗 Đến bài</button>
+            </div>
+          </div>
+        `;
+
+        const photo = card.querySelector('.global-card-thumb');
+        pendingSources.set(photo, imgSrc);
+        globalImageObserver.observe(photo);
+
+        // Checkbox toggle
+        const checkbox = card.querySelector('.global-card-checkbox');
+        checkbox.addEventListener('click', (e) => {
+          e.stopPropagation();
+          setGlobalImageSelected(key, e.currentTarget.checked);
+        });
+
+        // Click on thumbnail toggle select or preview
+        card.querySelector('.global-card-thumb-wrap').addEventListener('click', (e) => {
+          if (e.target.closest('.favorite-star-btn') || e.target.closest('.global-card-actions-overlay') || e.target.closest('.global-card-checkbox') || e.target.closest('.global-card-province-badge')) return;
+          const currentFilteredIdx = currentFilteredGlobalImages.findIndex(i => i.key === key);
+          if (currentFilteredIdx !== -1) {
+            openLightbox(currentFilteredIdx, currentFilteredGlobalImages);
+          }
+        });
+
+        // Click on province badge -> filter by province
+        const provBadge = card.querySelector('.global-card-province-badge');
+        if (provBadge) {
+          provBadge.addEventListener('click', (e) => {
+            e.stopPropagation();
+            globalActiveProvince = item.province;
+            renderGlobalProvinceCloud();
+            renderGlobalPhotoGrid();
+          });
+        }
+
+        // Star Favorite Button (Hướng C)
+        const starBtn = card.querySelector('.favorite-star-btn');
+        starBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          await toggleImageFavorite(postId, imageIndex);
+        });
+
+        // Overlay actions
+        card.querySelector('.view-btn').addEventListener('click', (e) => {
+          e.stopPropagation();
+          const currentFilteredIdx = currentFilteredGlobalImages.findIndex(i => i.key === key);
+          if (currentFilteredIdx !== -1) {
+            openLightbox(currentFilteredIdx, currentFilteredGlobalImages);
+          }
+        });
+
+        card.querySelector('.tag-btn').addEventListener('click', async (e) => {
+          e.stopPropagation();
+          await editGlobalImageTags(postId, imageIndex);
+        });
+
+        card.querySelector('.copy-btn').addEventListener('click', async (e) => {
+          e.stopPropagation();
+          await copyImageToClipboard(imgSrc);
+        });
+
+        card.querySelector('.dl-btn').addEventListener('click', (e) => {
+          e.stopPropagation();
+          e.currentTarget.href = imgSrc;
+        });
+
+        // Context Menu on right click (Menu chuột phải)
+        card.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          if (!selectedGlobalKeys.has(key)) {
+            setGlobalImageSelected(key, true);
+          }
+          openImageContextMenu(e.clientX, e.clientY, imageIndex, key);
+        });
+
+        // Tag click in card -> fast filter by tag (Hướng B)
+        card.querySelectorAll('.global-card-tag[data-tag]').forEach(tagEl => {
+          tagEl.addEventListener('click', (e) => {
+            e.stopPropagation();
+            globalActiveTag = tagEl.dataset.tag;
+            renderGlobalTagCloud();
+            renderGlobalPhotoGrid();
+          });
+        });
+
+        // Jump to source post
+        card.querySelector('.btn-jump-post').addEventListener('click', (e) => {
+          e.stopPropagation();
+          jumpToPost(postId);
+        });
+
+        fragment.appendChild(card);
+      }
+
+      globalPhotoGrid.appendChild(fragment);
+      if (nextIndex < totalCount) requestAnimationFrame(renderBatch);
+      else syncGlobalBatchToolbar();
+    };
+
+    renderBatch();
+  }
+
+  // ===== HƯỚNG C: TOGGLE FAVORITE =====
+  async function toggleImageFavorite(postId, imageIndex) {
+    const post = allPosts.find(p => p.id === postId);
+    if (!post || !post.images || !post.images[imageIndex]) return;
+
+    const img = post.images[imageIndex];
+    img.favorite = !img.favorite;
+
+    await DouyinDB.savePost(post);
+
+    if (activePost && activePost.id === postId) {
+      activePost = post;
+      renderImagesGrid(activePost.images || []);
+    }
+
+    updateGlobalCounts();
+
+    if (currentAppTab === 'photos') {
+      renderGlobalPhotoGrid();
+    }
+
+    showToast(img.favorite ? '⭐ Đã thêm vào ảnh yêu thích' : 'Đã bỏ yêu thích');
+  }
+
+  // ===== JUMP TO POST =====
+  function jumpToPost(postId) {
+    const targetPost = allPosts.find(p => p.id === postId);
+    if (!targetPost) return;
+    switchAppTab('posts');
+    selectPost(targetPost);
+    showToast(`📑 Đã mở bài viết của @${targetPost.author || 'Tác giả'}`);
+  }
+
+  // ===== EDIT TAGS FOR GLOBAL IMAGE =====
+  async function editGlobalImageTags(postId, imageIndex) {
+    const post = allPosts.find(p => p.id === postId);
+    if (!post || !post.images || !post.images[imageIndex]) return;
+    const img = post.images[imageIndex];
+    const current = (img.tags || []).map(t => `#${t}`).join(' ');
+    const value = prompt('Paste danh sách hashtag cho bức ảnh này (bắt đầu bằng #):', current);
+    if (value === null) return;
+    img.tags = parseImageTags(value).slice(0, 200);
+    await DouyinDB.savePost(post);
+    if (activePost && activePost.id === postId) {
+      activePost = post;
+      renderImagesGrid(activePost.images || []);
+    }
+    renderGlobalTagCloud();
+    renderGlobalPhotoGrid();
+    renderSidebarList();
+    showToast(`🏷️ Đã lưu ${img.tags.length} tag cho ảnh`);
+  }
+
+  // ===== GLOBAL SELECTION & BATCH ACTIONS (HƯỚNG C) =====
+  function setGlobalImageSelected(key, isSelected) {
+    if (isSelected) selectedGlobalKeys.add(key);
+    else selectedGlobalKeys.delete(key);
+    syncGlobalBatchToolbar();
+    const card = globalPhotoGrid.querySelector(`.global-photo-card[data-key="${key}"]`);
+    if (card) {
+      card.classList.toggle('selected', isSelected);
+      const cb = card.querySelector('.global-card-checkbox');
+      if (cb) cb.checked = isSelected;
+    }
+  }
+
+  function syncGlobalBatchToolbar() {
+    const count = selectedGlobalKeys.size;
+    globalSelectedCount.innerText = count ? `Đã chọn ${count} ảnh` : 'Chưa chọn ảnh';
+    if (btnGlobalBatchFav) btnGlobalBatchFav.disabled = count === 0;
+    if (btnGlobalBatchTag) btnGlobalBatchTag.disabled = count === 0;
+    if (btnGlobalBatchRotLeft) btnGlobalBatchRotLeft.disabled = count === 0;
+    if (btnGlobalBatchRotRight) btnGlobalBatchRotRight.disabled = count === 0;
+    if (btnGlobalBatchSendV2) btnGlobalBatchSendV2.disabled = count === 0;
+    if (btnGlobalBatchZip) btnGlobalBatchZip.disabled = count === 0;
+    if (btnGlobalBatchDelete) btnGlobalBatchDelete.disabled = count === 0;
+  }
+
+  // ===== XOAY ẢNH TRONG KHO TOÀN CỤC =====
+  async function rotateSelectedGlobalImages(degrees) {
+    if (!selectedGlobalKeys.size) return;
+    const count = selectedGlobalKeys.size;
+    if (btnGlobalBatchRotLeft) btnGlobalBatchRotLeft.disabled = true;
+    if (btnGlobalBatchRotRight) btnGlobalBatchRotRight.disabled = true;
+    showToast(`Đang xoay ${count} ảnh ${degrees < 0 ? 'sang trái' : 'sang phải'}...`);
+
+    try {
+      const affectedPostIds = new Set();
+      let currentIdx = 0;
+
+      for (const key of selectedGlobalKeys) {
+        currentIdx++;
+        showToast(`Đang xoay ảnh ${currentIdx}/${count}...`);
+        const [postId, idxStr] = key.split('__');
+        const idx = Number(idxStr);
+        const post = allPosts.find(p => p.id === postId);
+        if (post && post.images && post.images[idx]) {
+          const img = post.images[idx];
+          img.dataUrl = await rotateImageDataUrl(img.dataUrl, degrees, 1);
+          img.thumbnailDataUrl = await createPreviewImage(img.dataUrl, 0.68, 480);
+          affectedPostIds.add(postId);
+        }
+      }
+
+      for (const pid of affectedPostIds) {
+        const p = allPosts.find(item => item.id === pid);
+        if (p) {
+          p.thumbUrl = p.images[0]?.thumbnailDataUrl || p.images[0]?.dataUrl || '';
+          await DouyinDB.savePost(p);
+        }
+      }
+
+      if (activePost && affectedPostIds.has(activePost.id)) {
+        const updated = allPosts.find(p => p.id === activePost.id);
+        if (updated) {
+          activePost = updated;
+          renderImagesGrid(activePost.images || []);
+        }
+      }
+
+      renderGlobalPhotoGrid();
+      renderSidebarList();
+      showToast(`✅ Đã xoay ${count} ảnh ${degrees < 0 ? 'sang trái' : 'sang phải'}`);
+    } catch (error) {
+      console.error('Lỗi xoay ảnh toàn cục:', error);
+      showToast(`❌ Không thể xoay ảnh: ${error.message}`);
+    } finally {
+      syncGlobalBatchToolbar();
+    }
+  }
+
+  // Đổi tên ảnh chọn trong kho toàn cục
+  async function renameSelectedGlobalImages() {
+    if (!selectedGlobalKeys.size) return;
+    const value = prompt(`Tên gốc cho ${selectedGlobalKeys.size} ảnh. Ứng dụng tự thêm _01, _02...`, 'douyin_photo');
+    if (value === null) return;
+    const baseName = sanitizeImageFilename(value);
+    if (!baseName) {
+      showToast('❌ Tên ảnh không hợp lệ');
+      return;
+    }
+    const modifiedPostIds = new Set();
+    let order = 0;
+    for (const key of selectedGlobalKeys) {
+      order++;
+      const [postId, idxStr] = key.split('__');
+      const idx = Number(idxStr);
+      const post = allPosts.find(p => p.id === postId);
+      if (post && post.images && post.images[idx]) {
+        post.images[idx].filename = `${baseName}_${String(order).padStart(2, '0')}.jpg`;
+        modifiedPostIds.add(postId);
+      }
+    }
+    for (const pid of modifiedPostIds) {
+      const p = allPosts.find(item => item.id === pid);
+      if (p) await DouyinDB.savePost(p);
+    }
+    renderGlobalPhotoGrid();
+    showToast(`✎ Đã đổi tên ${selectedGlobalKeys.size} ảnh`);
+  }
+
+  // Gửi ảnh chọn trong kho toàn cục sang App V2
+  async function sendSelectedGlobalImagesToAppV2() {
+    if (!selectedGlobalKeys.size) return;
+    const count = selectedGlobalKeys.size;
+    const originalText = btnGlobalBatchSendV2 ? btnGlobalBatchSendV2.innerText : '';
+    if (btnGlobalBatchSendV2) {
+      btnGlobalBatchSendV2.disabled = true;
+      btnGlobalBatchSendV2.innerText = `Đang gửi 0/${count}`;
+    }
+    try {
+      const formData = new FormData();
+      let currentIdx = 0;
+      for (const key of selectedGlobalKeys) {
+        currentIdx++;
+        const [postId, idxStr] = key.split('__');
+        const idx = Number(idxStr);
+        const post = allPosts.find(p => p.id === postId);
+        if (post && post.images && post.images[idx]) {
+          const imageInfo = post.images[idx];
+          const response = await fetch(imageInfo.dataUrl);
+          if (!response.ok) throw new Error(`Không đọc được ảnh #${currentIdx}`);
+          const blob = await response.blob();
+          const filename = sanitizeImageFilename(imageInfo.filename || `douyin_photo_${currentIdx}`) || `douyin_photo_${currentIdx}`;
+          formData.append('files[]', blob, `${filename}.jpg`);
+          if (btnGlobalBatchSendV2) btnGlobalBatchSendV2.innerText = `Đang gửi ${currentIdx}/${count}`;
+        }
+      }
+
+      const uploadResponse = await fetch('http://127.0.0.1:5000/api/upload', {
+        method: 'POST',
+        body: formData
+      });
+      if (!uploadResponse.ok) throw new Error(`App V2 trả về lỗi ${uploadResponse.status}`);
+      const result = await uploadResponse.json();
+      if (!result.success) throw new Error(result.error || 'App V2 không nhận được ảnh');
+
+      if (chrome?.tabs?.create) chrome.tabs.create({ url: 'http://127.0.0.1:5000' });
+      else window.open('http://127.0.0.1:5000', '_blank');
+      showToast(`✅ Đã gửi ${result.count || count} ảnh sang ứng dụng Xử lý ảnh V2`);
+    } catch (error) {
+      console.error('Send global images to processor app failed:', error);
+      showToast('❌ Không kết nối được app V2. Hãy mở app trước rồi thử lại.');
+    } finally {
+      if (btnGlobalBatchSendV2) btnGlobalBatchSendV2.innerText = originalText;
+      syncGlobalBatchToolbar();
+    }
+  }
+
+  btnGlobalBatchRotLeft?.addEventListener('click', () => rotateSelectedGlobalImages(-90));
+  btnGlobalBatchRotRight?.addEventListener('click', () => rotateSelectedGlobalImages(90));
+  btnGlobalBatchSendV2?.addEventListener('click', sendSelectedGlobalImagesToAppV2);
+
+  btnGlobalSelectAll.addEventListener('click', () => {
+    currentFilteredGlobalImages.forEach(item => selectedGlobalKeys.add(item.key));
+    globalPhotoGrid.querySelectorAll('.global-photo-card').forEach(card => {
+      card.classList.add('selected');
+      const cb = card.querySelector('.global-card-checkbox');
+      if (cb) cb.checked = true;
+    });
+    syncGlobalBatchToolbar();
+  });
+
+  btnGlobalDeselect.addEventListener('click', () => {
+    selectedGlobalKeys.clear();
+    globalPhotoGrid.querySelectorAll('.global-photo-card').forEach(card => {
+      card.classList.remove('selected');
+      const cb = card.querySelector('.global-card-checkbox');
+      if (cb) cb.checked = false;
+    });
+    syncGlobalBatchToolbar();
+  });
+
+  // Batch Favorite
+  btnGlobalBatchFav.addEventListener('click', async () => {
+    if (!selectedGlobalKeys.size) return;
+    const modifiedPostIds = new Set();
+
+    selectedGlobalKeys.forEach(key => {
+      const [postId, idxStr] = key.split('__');
+      const idx = Number(idxStr);
+      const post = allPosts.find(p => p.id === postId);
+      if (post && post.images && post.images[idx]) {
+        post.images[idx].favorite = true;
+        modifiedPostIds.add(postId);
+      }
+    });
+
+    for (const pid of modifiedPostIds) {
+      const p = allPosts.find(item => item.id === pid);
+      if (p) await DouyinDB.savePost(p);
+    }
+
+    updateGlobalCounts();
+    renderGlobalPhotoGrid();
+    showToast(`⭐ Đã gắn yêu thích cho ${selectedGlobalKeys.size} ảnh`);
+  });
+
+  // Batch Tag
+  btnGlobalBatchTag.addEventListener('click', async () => {
+    if (!selectedGlobalKeys.size) return;
+    const value = prompt(`Paste hashtag để gắn cho ${selectedGlobalKeys.size} ảnh đã chọn:`, '');
+    if (value === null) return;
+    const tags = parseImageTags(value).slice(0, 200);
+    if (!tags.length) {
+      showToast('❌ Không tìm thấy hashtag nào');
+      return;
+    }
+
+    const modifiedPostIds = new Set();
+    selectedGlobalKeys.forEach(key => {
+      const [postId, idxStr] = key.split('__');
+      const idx = Number(idxStr);
+      const post = allPosts.find(p => p.id === postId);
+      if (post && post.images && post.images[idx]) {
+        post.images[idx].tags = [...new Set([...(post.images[idx].tags || []), ...tags])].slice(0, 200);
+        modifiedPostIds.add(postId);
+      }
+    });
+
+    for (const pid of modifiedPostIds) {
+      const p = allPosts.find(item => item.id === pid);
+      if (p) await DouyinDB.savePost(p);
+    }
+
+    updateGlobalCounts();
+    renderGlobalTagCloud();
+    renderGlobalPhotoGrid();
+    renderSidebarList();
+    showToast(`🏷️ Đã gắn ${tags.length} tag cho ${selectedGlobalKeys.size} ảnh`);
+  });
+
+  // Batch ZIP Download
+  btnGlobalBatchZip.addEventListener('click', async () => {
+    if (!selectedGlobalKeys.size) return;
+    showToast(`📦 Đang nén ${selectedGlobalKeys.size} ảnh đã chọn thành file ZIP...`);
+    const zip = new JSZip();
+    let count = 0;
+
+    selectedGlobalKeys.forEach(key => {
+      const [postId, idxStr] = key.split('__');
+      const idx = Number(idxStr);
+      const post = allPosts.find(p => p.id === postId);
+      if (post && post.images && post.images[idx]) {
+        const imgObj = post.images[idx];
+        const base64Data = (imgObj.dataUrl || '').split(',')[1];
+        if (base64Data) {
+          const filename = imgObj.filename || `photo_${count + 1}.jpg`;
+          zip.file(filename, base64Data, { base64: true });
+          count++;
+        }
+      }
+    });
+
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `[Douyin_Selected_${count}_Photos].zip`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast(`✅ Đã tải xong ZIP chứa ${count} ảnh!`);
+  });
+
+  // Batch Delete
+  btnGlobalBatchDelete.addEventListener('click', async () => {
+    if (!selectedGlobalKeys.size) return;
+    if (!confirm(`XÓA ${selectedGlobalKeys.size} ẢNH ĐÃ CHỌN?\n\nẢnh sẽ bị gỡ bỏ khỏi các bài viết tương ứng trong kho offline.`)) return;
+
+    // Group indexes by postId in descending order so splicing works properly
+    const postMap = new Map();
+    selectedGlobalKeys.forEach(key => {
+      const [postId, idxStr] = key.split('__');
+      const idx = Number(idxStr);
+      if (!postMap.has(postId)) postMap.set(postId, []);
+      postMap.get(postId).push(idx);
+    });
+
+    for (const [postId, indexes] of postMap.entries()) {
+      const post = allPosts.find(p => p.id === postId);
+      if (post && post.images) {
+        indexes.sort((a, b) => b - a).forEach(idx => {
+          post.images.splice(idx, 1);
+        });
+        post.thumbUrl = post.images[0]?.thumbnailDataUrl || post.images[0]?.dataUrl || '';
+        await DouyinDB.savePost(post);
+      }
+    }
+
+    selectedGlobalKeys.clear();
+    await refreshPostsList();
+    if (activePost) {
+      const updated = allPosts.find(p => p.id === activePost.id);
+      if (updated) selectPost(updated);
+    }
+    showToast('🗑️ Đã xóa các ảnh được chọn khỏi kho');
+  });
+
+  // ===== FILTER & SEARCH LISTENERS =====
+  provinceFilter?.addEventListener('change', () => {
+    selectedProvince = provinceFilter.value;
+    renderSidebarList();
+  });
+
+  btnEditProvince?.addEventListener('click', () => {
+    if (activePost) editPostProvince(activePost);
+  });
+
+  btnGlobalBatchProvince?.addEventListener('click', async () => {
+    await setBatchProvinceForSelected();
+  });
+
+  globalSearchInput.addEventListener('input', () => {
+    globalSearchQuery = globalSearchInput.value.trim();
+    btnClearGlobalSearch.classList.toggle('hidden', !globalSearchQuery);
+    renderGlobalPhotoGrid();
+  });
+
+  btnClearGlobalSearch.addEventListener('click', () => {
+    globalSearchInput.value = '';
+    globalSearchQuery = '';
+    btnClearGlobalSearch.classList.add('hidden');
+    renderGlobalPhotoGrid();
+  });
+
+  globalChips.forEach(chip => {
+    chip.addEventListener('click', () => {
+      globalChips.forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      globalFilter = chip.dataset.filter;
+      renderGlobalPhotoGrid();
+    });
+  });
+
+  globalPostFilter.addEventListener('change', () => {
+    globalSelectedPostId = globalPostFilter.value;
+    renderGlobalPhotoGrid();
+  });
+
+  globalSortSelect.addEventListener('change', () => {
+    globalSort = globalSortSelect.value;
+    renderGlobalPhotoGrid();
+  });
+
+  btnResetGlobalFilters.addEventListener('click', () => {
+    globalSearchInput.value = '';
+    globalSearchQuery = '';
+    btnClearGlobalSearch.classList.add('hidden');
+    globalActiveProvince = '';
+    globalActiveTag = '';
+    globalFilter = 'all';
+    globalChips.forEach(c => c.classList.toggle('active', c.dataset.filter === 'all'));
+    globalSelectedPostId = 'all';
+    globalPostFilter.value = 'all';
+    globalSort = 'newest';
+    globalSortSelect.value = 'newest';
+    renderGlobalProvinceCloud();
+    renderGlobalTagCloud();
+    renderGlobalPhotoGrid();
+  });
+
+  // =========================================================================
+  // ===== THẺ TAG TO: LOGIC PHÂN LOẠI TỈNH THÀNH / KHU VỰC =====
+  // =========================================================================
+  const POPULAR_PROVINCES = [
+    'Phú Quốc', 'Đà Nẵng', 'Đà Lạt', 'Nha Trang', 'Hạ Long',
+    'Sapa', 'Hội An', 'Ninh Bình', 'Hà Giang', 'Quy Nhơn',
+    'Vũng Tàu', 'Phan Thiết', 'Huế', 'Cát Bà', 'Hà Nội',
+    'TP. Hồ Chí Minh', 'Miền Tây', 'Tây Bắc', 'Quốc tế'
+  ];
+
+  function detectProvinceFromText(text) {
+    if (!text) return '';
+    const lower = text.toLowerCase();
+    const map = [
+      { key: 'Phú Quốc', patterns: ['phú quốc', 'phu quoc', '富国', 'hòn thơm', 'an thới', 'bãi sao', 'hàm ninh', 'sunset town', 'cáp treo hòn thơm'] },
+      { key: 'Kiên Giang', patterns: ['kiên giang', 'kien giang', 'nam du', 'rạch giá', 'hà tiên'] },
+      { key: 'Đà Lạt', patterns: ['đà lạt', 'da lat', 'dalat', '大叻', 'lâm đồng', 'tuyền lâm', 'langbiang'] },
+      { key: 'Đà Nẵng', patterns: ['đà nẵng', 'da nang', 'danang', '岘港', 'bà nà', 'bana hills', 'cầu vàng', 'sơn trà', 'ngũ hành sơn'] },
+      { key: 'Nha Trang', patterns: ['nha trang', 'nhatrang', '芽庄', 'khánh hòa', 'hòn tằm', 'bình hưng', 'bình ba', 'cam ranh'] },
+      { key: 'Sapa', patterns: ['sapa', 'sa pa', '沙坝', 'fansipan', 'fansipang', 'lào cai', 'ô quy hồ', 'mù cang chải'] },
+      { key: 'Hạ Long', patterns: ['hạ long', 'ha long', 'halong', '下龙', 'quảng ninh', 'bái đính', 'vân đồn', 'cô tô'] },
+      { key: 'Hội An', patterns: ['hội an', 'hoi an', 'hoian', '会安', 'quảng nam', 'chùa cầu', 'cù lao chàm'] },
+      { key: 'Ninh Bình', patterns: ['ninh bình', 'ninh binh', 'tràng an', 'tam cốc', 'bích động', 'hang múa', 'bái đính', '宁平'] },
+      { key: 'Hà Giang', patterns: ['hà giang', 'ha giang', 'mã pí lèng', 'đồng văn', 'lũng cú', 'sông nho quế', 'hoàng su phì', '河江'] },
+      { key: 'Quy Nhơn', patterns: ['quy nhơn', 'quy nhon', 'bình định', 'kỳ co', 'eo gió', 'cù lao xanh', '归仁'] },
+      { key: 'Vũng Tàu', patterns: ['vũng tàu', 'vung tau', 'bà rịa', 'côn đảo', 'hồ tràm', 'long hải', '头顿'] },
+      { key: 'Phan Thiết', patterns: ['phan thiết', 'mũi né', 'mui ne', 'bình thuận', 'đồi cát bay', 'bàu trắng', '潘切', '美奈'] },
+      { key: 'Huế', patterns: ['huế', 'thừa thiên', 'đại nội', 'sông hương', 'lăng khải định', 'lăng cô', '顺化'] },
+      { key: 'Cát Bà', patterns: ['cát bà', 'cat ba', 'lan hạ', 'hải phòng', '吉婆', '海防'] },
+      { key: 'Hà Nội', patterns: ['hà nội', 'ha noi', 'hanoi', 'hồ gươm', 'phố cổ', 'ba đình', 'tây hồ', '河内'] },
+      { key: 'TP. Hồ Chí Minh', patterns: ['hồ chí minh', 'sài gòn', 'saigon', 'hcm', 'quận 1', 'thủ đức', 'bến thành', '胡志明'] },
+      { key: 'Miền Tây', patterns: ['cần thơ', 'bến tre', 'an giang', 'châu đốc', 'đồng tháp', 'tiền giang', 'cà mau', 'miền tây'] },
+      { key: 'Tây Bắc', patterns: ['mộc châu', 'sơn la', 'điện biên', 'lai châu', 'yên bái', 'tây bắc'] },
+      { key: 'Quốc tế', patterns: ['trung quốc', 'thái lan', 'băng cốc', 'hàn quốc', 'nhật bản', 'singapore', 'bali', 'malaysia', 'dubai', 'china', 'thailand', 'japan', 'korea'] }
+    ];
+    for (const item of map) {
+      if (item.patterns.some(p => lower.includes(p))) return item.key;
+    }
+    return '';
+  }
+
+  function updateProvinceBadge() {
+    if (!activePost || !viewProvinceBadge) return;
+    const prov = activePost.province || '';
+    viewProvinceBadge.innerText = prov ? `📍 ${prov}` : '📍 Chưa gắn tỉnh';
+  }
+
+  function populateProvinceFilter() {
+    if (!provinceFilter) return;
+    const previous = selectedProvince;
+    const provinces = new Map();
+
+    allPosts.forEach(post => {
+      const p = post.province || detectProvinceFromText(post.desc + ' ' + (post.englishCaption || ''));
+      if (p) provinces.set(p, (provinces.get(p) || 0) + 1);
+    });
+
+    let html = `<option value="all">📍 Tất cả tỉnh thành (${allPosts.length})</option>`;
+    [...provinces.entries()].sort((a, b) => b[1] - a[1]).forEach(([name, count]) => {
+      html += `<option value="${escapeHtml(name)}">📍 ${escapeHtml(name)} (${count} bài)</option>`;
+    });
+    html += `<option value="__none__">📍 Chưa phân loại</option>`;
+
+    provinceFilter.innerHTML = html;
+    if (provinces.has(previous) || previous === '__none__') {
+      selectedProvince = previous;
+      provinceFilter.value = previous;
+    } else {
+      selectedProvince = 'all';
+      provinceFilter.value = 'all';
+    }
+  }
+
+  function renderGlobalProvinceCloud() {
+    const provCounts = new Map();
+    let unassignedCount = 0;
+
+    allPosts.forEach(post => {
+      const pName = post.province || detectProvinceFromText(post.desc + ' ' + (post.englishCaption || ''));
+      const imgLen = (post.images || []).length;
+      if (pName) {
+        provCounts.set(pName, (provCounts.get(pName) || 0) + imgLen);
+      } else {
+        unassignedCount += imgLen;
+      }
+    });
+
+    const sorted = [...provCounts.entries()].sort((a, b) => b[1] - a[1]);
+    if (unassignedCount > 0) {
+      sorted.push(['Chưa phân loại', unassignedCount]);
+    }
+
+    if (provinceCloudStats) {
+      provinceCloudStats.innerText = `${provCounts.size} tỉnh thành`;
+    }
+
+    if (globalActiveProvince) {
+      btnResetProvinceFilter?.classList.remove('hidden');
+      if (activeProvinceNameEl) {
+        activeProvinceNameEl.innerText = globalActiveProvince === '__none__' ? 'Chưa phân loại' : globalActiveProvince;
+      }
+    } else {
+      btnResetProvinceFilter?.classList.add('hidden');
+    }
+
+    if (!globalProvinceCloud) return;
+
+    if (sorted.length === 0) {
+      globalProvinceCloud.innerHTML = `<span style="font-size:11px;color:var(--text-muted);padding:4px 0">Chưa có tỉnh thành nào. Bấm "📍 Gắn tỉnh thành" để phân loại khu vực dễ dàng!</span>`;
+      return;
+    }
+
+    globalProvinceCloud.innerHTML = sorted.map(([name, count]) => {
+      const isNone = name === 'Chưa phân loại';
+      const isActive = globalActiveProvince && (isNone ? globalActiveProvince === '__none__' : globalActiveProvince.toLowerCase() === name.toLowerCase());
+      return `
+        <button type="button" class="cloud-province-chip ${isActive ? 'active' : ''}" data-province="${escapeHtml(isNone ? '__none__' : name)}">
+          📍 ${escapeHtml(name)} <span class="cloud-province-count">${count} ảnh</span>
+        </button>
+      `;
+    }).join('');
+
+    globalProvinceCloud.querySelectorAll('.cloud-province-chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const prov = btn.dataset.province;
+        if (globalActiveProvince === prov) {
+          globalActiveProvince = '';
+        } else {
+          globalActiveProvince = prov;
+        }
+        renderGlobalProvinceCloud();
+        renderGlobalPhotoGrid();
+      });
+    });
+  }
+
+  btnResetProvinceFilter?.addEventListener('click', () => {
+    globalActiveProvince = '';
+    renderGlobalProvinceCloud();
+    renderGlobalPhotoGrid();
+  });
+
+  async function editPostProvince(post) {
+    if (!post) return;
+    const detected = detectProvinceFromText(post.desc + ' ' + (post.englishCaption || ''));
+    const current = post.province || detected;
+    const promptMsg = `Nhập Tỉnh thành / Khu vực cho bài viết này:\nGợi ý: ${POPULAR_PROVINCES.slice(0, 10).join(', ')}...`;
+    const value = prompt(promptMsg, current || '');
+    if (value === null) return;
+    const clean = value.trim();
+    post.province = clean;
+    await DouyinDB.savePost(post);
+    updateProvinceBadge();
+    populateProvinceFilter();
+    renderGlobalProvinceCloud();
+    renderSidebarList();
+    if (currentAppTab === 'photos') renderGlobalPhotoGrid();
+    showToast(clean ? `📍 Đã gán tỉnh thành: ${clean}` : 'Đã xóa thẻ tỉnh thành');
+  }
+
+  async function setBatchProvinceForSelected(provinceName = null) {
+    if (!selectedGlobalKeys.size) return;
+    let target = provinceName;
+    if (target === null) {
+      const promptMsg = `Nhập Tỉnh thành / Khu vực cho ${selectedGlobalKeys.size} ảnh đã chọn:\nGợi ý: ${POPULAR_PROVINCES.slice(0, 10).join(', ')}...`;
+      const input = prompt(promptMsg, '');
+      if (input === null) return;
+      target = input.trim();
+    }
+
+    const affectedPostIds = new Set();
+    selectedGlobalKeys.forEach(key => {
+      const [postId] = key.split('__');
+      affectedPostIds.add(postId);
+    });
+
+    for (const pid of affectedPostIds) {
+      const post = allPosts.find(p => p.id === pid);
+      if (post) {
+        post.province = target;
+        await DouyinDB.savePost(post);
+      }
+    }
+
+    if (activePost && affectedPostIds.has(activePost.id)) {
+      activePost.province = target;
+      updateProvinceBadge();
+    }
+
+    populateProvinceFilter();
+    renderGlobalProvinceCloud();
+    renderSidebarList();
+    renderGlobalPhotoGrid();
+    showToast(target ? `📍 Đã gán "${target}" cho các bài viết đã chọn` : 'Đã xóa thẻ tỉnh thành');
   }
 });
