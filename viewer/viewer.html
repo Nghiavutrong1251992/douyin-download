@@ -167,6 +167,7 @@
             <button id="btn-rename-selected-images" class="btn-compact btn-compact-primary" disabled>✎ Đổi tên</button>
             <button id="btn-rotate-left-images" class="btn-compact btn-compact-primary" disabled>↶ Xoay trái</button>
             <button id="btn-rotate-right-images" class="btn-compact btn-compact-primary" disabled>↷ Xoay phải</button>
+            <button id="btn-send-image-app" class="btn-compact btn-compact-primary" disabled>↗ Gửi sang Xử lý ảnh V2</button>
             <button id="btn-optimize-selected-images" class="btn-compact btn-compact-primary" disabled>◫ Tạo ảnh xem nhẹ</button>
             <button id="btn-delete-selected-images" class="btn-compact btn-compact-danger" disabled>🗑 Xóa ảnh chọn</button>
           </div>
@@ -179,20 +180,31 @@
   </div>
 
   <!-- Lightbox Viewer Modal -->
-  <div id="lightbox" class="lightbox" onclick="closeLightbox()">
-    <button class="lightbox-btn lightbox-close" onclick="closeLightbox()">&times;</button>
-    <button class="lightbox-btn lightbox-prev" onclick="event.stopPropagation(); changeLightbox(-1)">&#10094;</button>
-    <div class="lightbox-body" onclick="event.stopPropagation()">
+  <div id="lightbox" class="lightbox">
+    <button id="lightbox-close" class="lightbox-btn lightbox-close">&times;</button>
+    <button id="lightbox-prev" class="lightbox-btn lightbox-prev">&#10094;</button>
+    <div id="lightbox-body" class="lightbox-body">
       <img id="lightbox-img" src="" alt="Fullscreen View" />
       <div class="lightbox-toolbar">
         <span id="lightbox-counter">1 / 1</span>
         <div class="lightbox-actions">
-          <button id="lightbox-copy-btn" class="btn-lightbox" onclick="copyCurrentLightboxImage()">📋 Copy ảnh</button>
+          <button id="lightbox-copy-btn" class="btn-lightbox">📋 Copy ảnh</button>
           <a id="lightbox-dl-btn" href="#" download="" class="btn-lightbox">⬇ Tải JPG này</a>
         </div>
       </div>
     </div>
-    <button class="lightbox-btn lightbox-next" onclick="event.stopPropagation(); changeLightbox(1)">&#10095;</button>
+    <button id="lightbox-next" class="lightbox-btn lightbox-next">&#10095;</button>
+  </div>
+
+  <div id="image-context-menu" class="image-context-menu hidden" role="menu">
+    <button data-action="view">👁 Xem ảnh lớn</button>
+    <button data-action="tag">🏷 Gắn tag</button>
+    <button data-action="rename">✎ Đổi tên</button>
+    <button data-action="rotate-left">↶ Xoay trái</button>
+    <button data-action="rotate-right">↷ Xoay phải</button>
+    <button data-action="send-image-app">↗ Gửi sang Xử lý ảnh V2</button>
+    <button data-action="copy">📋 Copy ảnh</button>
+    <button data-action="delete" class="context-danger">🗑 Xóa ảnh chọn</button>
   </div>
 
   <!-- Toast Notification -->

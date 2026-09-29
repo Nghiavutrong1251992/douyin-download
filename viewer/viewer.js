@@ -14,6 +14,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const emptyStateEl = document.getElementById('empty-state');
   const postViewEl = document.getElementById('post-view');
+  const mainContentEl = document.querySelector('.main-content');
 
   const viewAvatar = document.getElementById('view-avatar');
   const viewAuthor = document.getElementById('view-author');
@@ -46,6 +47,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const btnRenameSelectedImages = document.getElementById('btn-rename-selected-images');
   const btnRotateLeftImages = document.getElementById('btn-rotate-left-images');
   const btnRotateRightImages = document.getElementById('btn-rotate-right-images');
+  const btnSendImageApp = document.getElementById('btn-send-image-app');
   const btnOptimizeSelectedImages = document.getElementById('btn-optimize-selected-images');
   const btnDeleteSelectedImages = document.getElementById('btn-delete-selected-images');
 
@@ -53,6 +55,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   const lightboxImg = document.getElementById('lightbox-img');
   const lightboxCounter = document.getElementById('lightbox-counter');
   const lightboxDlBtn = document.getElementById('lightbox-dl-btn');
+  const lightboxCloseBtn = document.getElementById('lightbox-close');
+  const lightboxPrevBtn = document.getElementById('lightbox-prev');
+  const lightboxNextBtn = document.getElementById('lightbox-next');
+  const lightboxBody = document.getElementById('lightbox-body');
+  const lightboxCopyBtn = document.getElementById('lightbox-copy-btn');
+  const imageContextMenu = document.getElementById('image-context-menu');
 
   const toastEl = document.getElementById('toast');
 
@@ -70,6 +78,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   let selectedImageIndexes = new Set();
   let lastSelectedImageIndex = null;
   let notesSaveTimer = null;
+  let contextImageIndex = null;
 
   // ===== INITIAL LOAD =====
   DouyinFiles.getDirectoryInfo().catch(() => {});
@@ -295,6 +304,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     const renderGeneration = ++galleryRenderGeneration;
     if (galleryImageObserver) galleryImageObserver.disconnect();
 
+    const previousScrollTop = mainContentEl.scrollTop;
+    const previousGridHeight = viewImageGrid.offsetHeight;
+    if (previousGridHeight) viewImageGrid.style.minHeight = `${previousGridHeight}px`;
     viewImageGrid.innerHTML = '';
     btnDownloadAllJpg.querySelector('span').innerText = `Tải ${images.length} ảnh`;
     btnDownloadAllJpg.disabled = images.length === 0;
@@ -302,6 +314,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       .filter(({ image }) => !imageTagQuery || (image.tags || []).some(tag => tag.toLowerCase().includes(imageTagQuery)));
     if (visibleImages.length === 0) {
       viewImageGrid.innerHTML = `<div class="gallery-no-results">${images.length ? 'Không có ảnh khớp với tag đang tìm.' : 'Bài viết không còn ảnh.'}</div>`;
+      finishGalleryRender(previousScrollTop);
       return;
     }
 
@@ -332,6 +345,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const imgSrc = imgObj.thumbnailDataUrl || imgObj.dataUrl;
         const card = document.createElement('div');
         card.className = `gallery-photo-card ${selectedImageIndexes.has(idx) ? 'selected' : ''}`;
+        card.dataset.imageIndex = String(idx);
 
         card.innerHTML = `
           <div class="photo-wrapper">
@@ -357,13 +371,24 @@ document.addEventListener('DOMContentLoaded', async () => {
         card.querySelector('.image-select-checkbox').addEventListener('click', (e) => {
           e.stopPropagation();
           setImageSelected(idx, e.currentTarget.checked, e.shiftKey);
-          renderImagesGrid(activePost.images);
+          syncImageSelectionUi();
         });
 
         card.addEventListener('click', (e) => {
           if (e.target.closest('.photo-actions-overlay')) return;
           setImageSelected(idx, !selectedImageIndexes.has(idx), e.shiftKey);
-          renderImagesGrid(activePost.images);
+          syncImageSelectionUi();
+        });
+
+        card.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          if (!selectedImageIndexes.has(idx)) {
+            selectedImageIndexes.add(idx);
+            lastSelectedImageIndex = idx;
+            updateImageSelectionToolbar();
+            syncImageSelectionUi();
+          }
+          openImageContextMenu(e.clientX, e.clientY, idx);
         });
 
         card.querySelector('.view-img-btn').addEventListener('click', (e) => {
@@ -396,9 +421,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       viewImageGrid.appendChild(fragment);
       if (nextIndex < visibleImages.length) requestAnimationFrame(renderBatch);
+      else finishGalleryRender(previousScrollTop);
     };
 
     renderBatch();
+  }
+
+  function finishGalleryRender(scrollTop) {
+    viewImageGrid.style.minHeight = '';
+    requestAnimationFrame(() => { mainContentEl.scrollTop = scrollTop; });
   }
 
   async function editImageTags(index) {
@@ -458,13 +489,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   btnSelectAllImages.addEventListener('click', () => {
     if (!activePost) return;
     selectedImageIndexes = new Set(activePost.images.map((_, index) => index));
-    renderImagesGrid(activePost.images);
+    syncImageSelectionUi();
     updateImageSelectionToolbar();
   });
 
   btnClearImageSelection.addEventListener('click', () => {
     selectedImageIndexes.clear();
-    if (activePost) renderImagesGrid(activePost.images || []);
+    syncImageSelectionUi();
     updateImageSelectionToolbar();
   });
 
@@ -520,6 +551,45 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   btnRotateLeftImages.addEventListener('click', () => rotateSelectedImages(-90));
   btnRotateRightImages.addEventListener('click', () => rotateSelectedImages(90));
+  btnSendImageApp.addEventListener('click', sendSelectedImagesToProcessorApp);
+
+  async function sendSelectedImagesToProcessorApp() {
+    const indexes = getSelectedImageIndexes();
+    if (!indexes.length) return;
+    const originalText = btnSendImageApp.innerText;
+    btnSendImageApp.disabled = true;
+    btnSendImageApp.innerText = `Đang gửi 0/${indexes.length}`;
+    try {
+      const formData = new FormData();
+      for (let position = 0; position < indexes.length; position++) {
+        const imageInfo = activePost.images[indexes[position]];
+        const response = await fetch(imageInfo.dataUrl);
+        if (!response.ok) throw new Error(`Không đọc được ảnh #${indexes[position] + 1}`);
+        const blob = await response.blob();
+        const filename = sanitizeImageFilename(imageInfo.filename || `douyin_photo_${position + 1}`) || `douyin_photo_${position + 1}`;
+        formData.append('files[]', blob, `${filename}.jpg`);
+        btnSendImageApp.innerText = `Đang gửi ${position + 1}/${indexes.length}`;
+      }
+
+      const uploadResponse = await fetch('http://127.0.0.1:5000/api/upload', {
+        method: 'POST',
+        body: formData
+      });
+      if (!uploadResponse.ok) throw new Error(`App V2 trả về lỗi ${uploadResponse.status}`);
+      const result = await uploadResponse.json();
+      if (!result.success) throw new Error(result.error || 'App V2 không nhận được ảnh');
+
+      if (chrome?.tabs?.create) chrome.tabs.create({ url: 'http://127.0.0.1:5000' });
+      else window.open('http://127.0.0.1:5000', '_blank');
+      showToast(`✅ Đã gửi ${result.count || indexes.length} ảnh sang ứng dụng Xử lý ảnh V2`);
+    } catch (error) {
+      console.error('Send images to processor app failed:', error);
+      showToast('❌ Không kết nối được app V2. Hãy mở app trước rồi thử lại.');
+    } finally {
+      btnSendImageApp.innerText = originalText;
+      updateImageSelectionToolbar();
+    }
+  }
 
   async function rotateSelectedImages(degrees) {
     const indexes = getSelectedImageIndexes();
@@ -578,12 +648,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     selectedImageIndexes.clear();
     activePost.thumbUrl = activePost.images[0]?.thumbnailDataUrl || activePost.images[0]?.dataUrl || '';
     await DouyinDB.savePost(activePost);
+    const folderSync = await syncPostFolderAfterImageDeletion();
     lightbox.classList.remove('active');
     viewImgCount.innerText = `🖼️ ${activePost.images.length} ảnh JPG`;
     renderImagesGrid(activePost.images);
     renderSidebarList();
     updateImageSelectionToolbar();
-    showToast(`🗑️ Đã xóa ${indexes.length} ảnh`);
+    showToast(folderSync === 'synced'
+      ? `🗑️ Đã xóa ${indexes.length} ảnh khỏi kho và thư mục trên máy`
+      : folderSync === 'failed'
+        ? `⚠️ Đã xóa ${indexes.length} ảnh khỏi kho; chưa xóa được file trong thư mục máy`
+        : `🗑️ Đã xóa ${indexes.length} ảnh khỏi kho offline`);
   });
 
   function getSelectedImageIndexes() {
@@ -609,6 +684,51 @@ document.addEventListener('DOMContentLoaded', async () => {
     updateImageSelectionToolbar();
   }
 
+  function syncImageSelectionUi() {
+    viewImageGrid.querySelectorAll('.gallery-photo-card[data-image-index]').forEach(card => {
+      const index = Number(card.dataset.imageIndex);
+      const selected = selectedImageIndexes.has(index);
+      card.classList.toggle('selected', selected);
+      const checkbox = card.querySelector('.image-select-checkbox');
+      if (checkbox) checkbox.checked = selected;
+    });
+  }
+
+  function openImageContextMenu(x, y, imageIndex) {
+    contextImageIndex = imageIndex;
+    imageContextMenu.classList.remove('hidden');
+    const width = imageContextMenu.offsetWidth;
+    const height = imageContextMenu.offsetHeight;
+    imageContextMenu.style.left = `${Math.min(x, window.innerWidth - width - 8)}px`;
+    imageContextMenu.style.top = `${Math.min(y, window.innerHeight - height - 8)}px`;
+  }
+
+  function closeImageContextMenu() {
+    imageContextMenu.classList.add('hidden');
+    contextImageIndex = null;
+  }
+
+  imageContextMenu.addEventListener('click', async (event) => {
+    const button = event.target.closest('button[data-action]');
+    if (!button || contextImageIndex === null) return;
+    const action = button.dataset.action;
+    const imageIndex = contextImageIndex;
+    closeImageContextMenu();
+    if (action === 'view') openLightbox(imageIndex);
+    else if (action === 'tag') btnTagSelectedImages.click();
+    else if (action === 'rename') btnRenameSelectedImages.click();
+    else if (action === 'rotate-left') btnRotateLeftImages.click();
+    else if (action === 'rotate-right') btnRotateRightImages.click();
+    else if (action === 'send-image-app') btnSendImageApp.click();
+    else if (action === 'delete') btnDeleteSelectedImages.click();
+    else if (action === 'copy') await copyImageToClipboard(activePost.images[imageIndex].dataUrl);
+  });
+
+  document.addEventListener('click', (event) => {
+    if (!event.target.closest('#image-context-menu')) closeImageContextMenu();
+  });
+  document.addEventListener('scroll', closeImageContextMenu, true);
+
   function updateImageSelectionToolbar() {
     const count = getSelectedImageIndexes().length;
     selectedImagesCount.innerText = count ? `Đã chọn ${count} ảnh` : 'Chưa chọn ảnh';
@@ -616,6 +736,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     btnRenameSelectedImages.disabled = count === 0;
     btnRotateLeftImages.disabled = count === 0;
     btnRotateRightImages.disabled = count === 0;
+    btnSendImageApp.disabled = count === 0;
     btnOptimizeSelectedImages.disabled = count === 0;
     btnDeleteSelectedImages.disabled = count === 0;
   }
@@ -707,13 +828,30 @@ document.addEventListener('DOMContentLoaded', async () => {
       .map(selectedIndex => selectedIndex > index ? selectedIndex - 1 : selectedIndex));
     activePost.thumbUrl = activePost.images[0]?.thumbnailDataUrl || activePost.images[0]?.dataUrl || '';
     await DouyinDB.savePost(activePost);
+    const folderSync = await syncPostFolderAfterImageDeletion();
 
     lightbox.classList.remove('active');
     viewImgCount.innerText = `🖼️ ${activePost.images.length} ảnh JPG`;
     renderImagesGrid(activePost.images);
     updateImageSelectionToolbar();
     renderSidebarList();
-    showToast('🗑️ Đã xóa ảnh khỏi bài viết offline');
+    showToast(folderSync === 'synced'
+      ? '🗑️ Đã xóa ảnh khỏi kho và thư mục trên máy'
+      : folderSync === 'failed'
+        ? '⚠️ Đã xóa khỏi kho; chưa xóa được file trong thư mục máy'
+        : '🗑️ Đã xóa ảnh khỏi bài viết offline');
+  }
+
+  async function syncPostFolderAfterImageDeletion() {
+    try {
+      const directoryInfo = await DouyinFiles.getDirectoryInfo();
+      if (!directoryInfo.configured) return 'not-configured';
+      await DouyinFiles.savePost(activePost, { requestPermission: true });
+      return 'synced';
+    } catch (error) {
+      console.warn('Không thể đồng bộ thao tác xóa vào thư mục offline:', error);
+      return 'failed';
+    }
   }
 
   // ===== LIGHTBOX =====
@@ -749,11 +887,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     await copyImageToClipboard(current.dataUrl);
   };
 
+  lightboxCloseBtn.addEventListener('click', window.closeLightbox);
+  lightboxPrevBtn.addEventListener('click', () => window.changeLightbox(-1));
+  lightboxNextBtn.addEventListener('click', () => window.changeLightbox(1));
+  lightboxCopyBtn.addEventListener('click', window.copyCurrentLightboxImage);
+  lightbox.addEventListener('click', (event) => {
+    if (event.target === lightbox) window.closeLightbox();
+  });
+  lightboxBody.addEventListener('click', event => event.stopPropagation());
+
   document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      closeImageContextMenu();
+      if (lightbox.classList.contains('active')) window.closeLightbox();
+      return;
+    }
     if (!lightbox.classList.contains('active')) return;
-    if (e.key === 'Escape') closeLightbox();
-    if (e.key === 'ArrowLeft') changeLightbox(-1);
-    if (e.key === 'ArrowRight') changeLightbox(1);
+    if (e.key === 'ArrowLeft') window.changeLightbox(-1);
+    if (e.key === 'ArrowRight') window.changeLightbox(1);
   });
 
   // ===== COPY TEXT BUTTONS =====

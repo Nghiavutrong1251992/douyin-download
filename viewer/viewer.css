@@ -992,6 +992,35 @@ body {
   transition: opacity 0.3s;
 }
 
+.image-context-menu {
+  position: fixed;
+  z-index: 3000;
+  width: 178px;
+  padding: 6px;
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 9px;
+  background: rgba(17,20,34,.98);
+  box-shadow: 0 12px 36px rgba(0,0,0,.55);
+  backdrop-filter: blur(12px);
+}
+
+.image-context-menu button {
+  display: block;
+  width: 100%;
+  padding: 8px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-main);
+  font-size: 12px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.image-context-menu button:hover { background: rgba(255,255,255,.09); }
+.image-context-menu .context-danger { color: #fca5a5; }
+.image-context-menu .context-danger:hover { background: rgba(239,68,68,.16); }
+
 .hidden {
   display: none !important;
 }
