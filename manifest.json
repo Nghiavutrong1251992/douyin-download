@@ -26,8 +26,7 @@
     "*://*.tiktokcdn.com/*",
     "*://*.pstatp.com/*",
     "https://api.deepseek.com/*",
-    "https://graph.facebook.com/*",
-    "http://127.0.0.1:5000/*"
+    "https://graph.facebook.com/*"
   ],
   "background": {
     "service_worker": "background/background.js"

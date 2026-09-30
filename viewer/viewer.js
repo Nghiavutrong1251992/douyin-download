@@ -50,7 +50,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const btnRenameSelectedImages = document.getElementById('btn-rename-selected-images');
   const btnRotateLeftImages = document.getElementById('btn-rotate-left-images');
   const btnRotateRightImages = document.getElementById('btn-rotate-right-images');
-  const btnSendImageApp = document.getElementById('btn-send-image-app');
+  const btnOpenFolderLocation = document.getElementById('btn-open-folder-location');
   const btnOptimizeSelectedImages = document.getElementById('btn-optimize-selected-images');
   const btnDeleteSelectedImages = document.getElementById('btn-delete-selected-images');
 
@@ -64,6 +64,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const lightboxBody = document.getElementById('lightbox-body');
   const lightboxCopyBtn = document.getElementById('lightbox-copy-btn');
   const lightboxFavBtn = document.getElementById('lightbox-fav-btn');
+  const lightboxOpenLocationBtn = document.getElementById('lightbox-open-location-btn');
   const lightboxFilename = document.getElementById('lightbox-filename');
   const imageContextMenu = document.getElementById('image-context-menu');
 
@@ -106,7 +107,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const btnGlobalBatchTag = document.getElementById('btn-global-batch-tag');
   const btnGlobalBatchRotLeft = document.getElementById('btn-global-batch-rot-left');
   const btnGlobalBatchRotRight = document.getElementById('btn-global-batch-rot-right');
-  const btnGlobalBatchSendV2 = document.getElementById('btn-global-batch-send-v2');
+  const btnGlobalBatchOpenLocation = document.getElementById('btn-global-batch-open-location');
   const btnGlobalBatchZip = document.getElementById('btn-global-batch-zip');
   const btnGlobalBatchDelete = document.getElementById('btn-global-batch-delete');
   const globalPhotoGrid = document.getElementById('global-photo-grid');
@@ -453,6 +454,7 @@ document.addEventListener('DOMContentLoaded', async () => {
               <button type="button" class="btn-photo-action view-img-btn" title="Xem ảnh lớn" aria-label="Xem ảnh lớn">👁</button>
               <button type="button" class="btn-photo-action tag-img-btn" title="Gắn tag" aria-label="Gắn tag">🏷</button>
               <button type="button" class="btn-photo-action copy-img-btn" title="Sao chép ảnh" aria-label="Sao chép ảnh">📋</button>
+              <button type="button" class="btn-photo-action open-loc-img-btn" title="Mở vị trí file trong thư mục" aria-label="Mở vị trí file">📂</button>
               <a class="btn-photo-action dl-img-btn" href="#" download="${imgObj.filename || `photo_${idx + 1}.jpg`}" title="Tải ảnh" aria-label="Tải ảnh">⬇</a>
               <button type="button" class="btn-photo-action delete-img-btn" title="Xóa ảnh" aria-label="Xóa ảnh">🗑</button>
             </div>
@@ -505,6 +507,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         card.querySelector('.tag-img-btn').addEventListener('click', async (e) => {
           e.stopPropagation();
           await editImageTags(idx);
+        });
+
+        card.querySelector('.open-loc-img-btn')?.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          await openImageInFolderLocation(imgObj, activePost, idx);
         });
 
         card.querySelector('.dl-img-btn').addEventListener('click', (e) => {
@@ -652,42 +659,179 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   btnRotateLeftImages.addEventListener('click', () => rotateSelectedImages(-90));
   btnRotateRightImages.addEventListener('click', () => rotateSelectedImages(90));
-  btnSendImageApp.addEventListener('click', sendSelectedImagesToProcessorApp);
+  btnOpenFolderLocation?.addEventListener('click', openSelectedImagesInFolder);
 
-  async function sendSelectedImagesToProcessorApp() {
-    const indexes = getSelectedImageIndexes();
-    if (!indexes.length) return;
-    const originalText = btnSendImageApp.innerText;
-    btnSendImageApp.disabled = true;
-    btnSendImageApp.innerText = `Đang gửi 0/${indexes.length}`;
-    try {
-      const formData = new FormData();
-      for (let position = 0; position < indexes.length; position++) {
-        const imageInfo = activePost.images[indexes[position]];
-        const response = await fetch(imageInfo.dataUrl);
-        if (!response.ok) throw new Error(`Không đọc được ảnh #${indexes[position] + 1}`);
-        const blob = await response.blob();
-        const filename = sanitizeImageFilename(imageInfo.filename || `douyin_photo_${position + 1}`) || `douyin_photo_${position + 1}`;
-        formData.append('files[]', blob, `${filename}.jpg`);
-        btnSendImageApp.innerText = `Đang gửi ${position + 1}/${indexes.length}`;
+  function getDownloadPathForImage(imageInfo, post, fallbackIndex = 0) {
+    let folderName = 'Douyin_Photos';
+    if (post) {
+      if (typeof DouyinFiles !== 'undefined' && typeof DouyinFiles.getPostFolderName === 'function') {
+        folderName = DouyinFiles.getPostFolderName(post);
+      } else {
+        const date = new Date().toISOString().slice(0, 10);
+        folderName = `${date}_${post.author || 'douyin'}_${post.id || ''}`.replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_');
+      }
+    }
+    let cleanFilename = sanitizeImageFilename(imageInfo?.filename || `photo_${String(fallbackIndex + 1).padStart(2, '0')}.jpg`);
+    if (!/\.(jpe?g|png|webp|gif)$/i.test(cleanFilename)) {
+      cleanFilename += '.jpg';
+    }
+    return `Douyin_Photos/${folderName}/${cleanFilename}`;
+  }
+
+  function waitForDownloadComplete(downloadId, timeoutMs = 8000) {
+    return new Promise((resolve) => {
+      let resolved = false;
+      let timer = null;
+
+      const cleanup = () => {
+        if (timer) clearTimeout(timer);
+        if (chrome?.downloads?.onChanged) {
+          try {
+            chrome.downloads.onChanged.removeListener(onChanged);
+          } catch (_) {}
+        }
+      };
+
+      const done = () => {
+        if (resolved) return;
+        resolved = true;
+        cleanup();
+        resolve(true);
+      };
+
+      const onChanged = (delta) => {
+        if (delta.id === downloadId) {
+          if (delta.state && (delta.state.current === 'complete' || delta.state.current === 'interrupted')) {
+            done();
+          }
+        }
+      };
+
+      if (chrome?.downloads?.onChanged) {
+        chrome.downloads.onChanged.addListener(onChanged);
       }
 
-      const uploadResponse = await fetch('http://127.0.0.1:5000/api/upload', {
-        method: 'POST',
-        body: formData
-      });
-      if (!uploadResponse.ok) throw new Error(`App V2 trả về lỗi ${uploadResponse.status}`);
-      const result = await uploadResponse.json();
-      if (!result.success) throw new Error(result.error || 'App V2 không nhận được ảnh');
+      if (chrome?.downloads?.search) {
+        chrome.downloads.search({ id: downloadId }, (items) => {
+          if (items && items[0] && items[0].state === 'complete') {
+            done();
+          }
+        });
+      }
 
-      if (chrome?.tabs?.create) chrome.tabs.create({ url: 'http://127.0.0.1:5000' });
-      else window.open('http://127.0.0.1:5000', '_blank');
-      showToast(`✅ Đã gửi ${result.count || indexes.length} ảnh sang ứng dụng Xử lý ảnh V2`);
+      timer = setTimeout(done, timeoutMs);
+    });
+  }
+
+  async function openImageInFolderLocation(imageInfo, post, fallbackIndex = 0) {
+    if (!imageInfo) return null;
+    const relativePath = getDownloadPathForImage(imageInfo, post, fallbackIndex);
+    const fileNameOnly = relativePath.split('/').pop();
+
+    try {
+      // 1. If downloadId exists, check if file is still there
+      if (imageInfo.downloadId && chrome?.downloads?.search) {
+        const items = await new Promise(res => chrome.downloads.search({ id: imageInfo.downloadId }, res));
+        if (items && items.length > 0 && items[0].state === 'complete' && items[0].exists) {
+          chrome.downloads.show(imageInfo.downloadId);
+          showToast(`📂 Đã mở thư mục chứa ${fileNameOnly}`);
+          return imageInfo.downloadId;
+        }
+      }
+
+      // 2. Check if a downloaded file matching this path exists
+      if (chrome?.downloads?.search) {
+        const escaped = fileNameOnly.replace(/[/\\+?*()^$]/g, '\\$&');
+        const items = await new Promise(res => chrome.downloads.search({ filenameRegex: escaped + '$', state: 'complete' }, res));
+        const match = (items || []).find(item => item.exists && (item.filename.includes(fileNameOnly)));
+        if (match) {
+          chrome.downloads.show(match.id);
+          imageInfo.downloadId = match.id;
+          showToast(`📂 Đã mở thư mục chứa ${fileNameOnly}`);
+          return match.id;
+        }
+      }
+
+      // 3. Otherwise, save the image file to disk using chrome.downloads, then reveal it in folder
+      const dataUrl = imageInfo.dataUrl || imageInfo.thumbnailDataUrl;
+      if (!dataUrl) throw new Error('Không có dữ liệu ảnh để lưu và mở thư mục.');
+
+      let downloadUrl;
+      let needRevoke = false;
+      if (dataUrl.startsWith('data:')) {
+        const res = await fetch(dataUrl);
+        const blob = await res.blob();
+        downloadUrl = URL.createObjectURL(blob);
+        needRevoke = true;
+      } else {
+        downloadUrl = dataUrl;
+      }
+
+      const downloadId = await new Promise((resolve, reject) => {
+        chrome.downloads.download({
+          url: downloadUrl,
+          filename: relativePath,
+          saveAs: false,
+          conflictAction: 'overwrite'
+        }, (id) => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+          } else {
+            resolve(id);
+          }
+        });
+      });
+
+      if (needRevoke) {
+        setTimeout(() => URL.revokeObjectURL(downloadUrl), 30000);
+      }
+
+      if (!downloadId) throw new Error('Không thể tải file.');
+
+      await waitForDownloadComplete(downloadId);
+      chrome.downloads.show(downloadId);
+      imageInfo.downloadId = downloadId;
+      showToast(`📂 Đã mở thư mục chứa ${fileNameOnly}`);
+      return downloadId;
+    } catch (err) {
+      console.error('Mở thư mục chứa file thất bại:', err);
+      if (chrome?.downloads?.showDefaultFolder) {
+        chrome.downloads.showDefaultFolder();
+        showToast('📂 Đã mở thư mục tải về của trình duyệt');
+      } else {
+        showToast(`❌ Không thể mở thư mục: ${err.message || 'Lỗi không xác định'}`);
+      }
+      return null;
+    }
+  }
+
+  async function openSelectedImagesInFolder() {
+    const indexes = getSelectedImageIndexes();
+    if (!indexes.length || !activePost) return;
+    const originalText = btnOpenFolderLocation ? btnOpenFolderLocation.innerText : '';
+    if (btnOpenFolderLocation) {
+      btnOpenFolderLocation.disabled = true;
+      btnOpenFolderLocation.innerText = `Đang mở 0/${indexes.length}`;
+    }
+
+    try {
+      let firstDownloadId = null;
+      for (let pos = 0; pos < indexes.length; pos++) {
+        const idx = indexes[pos];
+        const imageInfo = activePost.images[idx];
+        if (btnOpenFolderLocation) btnOpenFolderLocation.innerText = `Đang mở ${pos + 1}/${indexes.length}`;
+        const id = await openImageInFolderLocation(imageInfo, activePost, idx);
+        if (!firstDownloadId && id) firstDownloadId = id;
+      }
+      if (firstDownloadId && chrome?.downloads?.show) {
+        chrome.downloads.show(firstDownloadId);
+      }
+      showToast(`📂 Đã mở thư mục chứa ${indexes.length} ảnh`);
     } catch (error) {
-      console.error('Send images to processor app failed:', error);
-      showToast('❌ Không kết nối được app V2. Hãy mở app trước rồi thử lại.');
+      console.error('Mở thư mục ảnh chọn thất bại:', error);
+      showToast(`❌ Không thể mở thư mục: ${error.message}`);
     } finally {
-      btnSendImageApp.innerText = originalText;
+      if (btnOpenFolderLocation) btnOpenFolderLocation.innerText = originalText;
       updateImageSelectionToolbar();
     }
   }
@@ -841,8 +985,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         await rotateSelectedGlobalImages(-90);
       } else if (action === 'rotate-right') {
         await rotateSelectedGlobalImages(90);
-      } else if (action === 'send-image-app') {
-        await sendSelectedGlobalImagesToAppV2();
+      } else if (action === 'open-location') {
+        if (activeKey) {
+          const [postId, idxStr] = activeKey.split('__');
+          const p = allPosts.find(item => item.id === postId);
+          const img = p?.images?.[Number(idxStr)];
+          if (img) await openImageInFolderLocation(img, p, Number(idxStr));
+        } else if (selectedGlobalKeys.size) {
+          await openSelectedGlobalImagesInFolder();
+        }
       } else if (action === 'delete') {
         btnGlobalBatchDelete.click();
       } else if (action === 'copy') {
@@ -867,7 +1018,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     else if (action === 'rename') btnRenameSelectedImages.click();
     else if (action === 'rotate-left') btnRotateLeftImages.click();
     else if (action === 'rotate-right') btnRotateRightImages.click();
-    else if (action === 'send-image-app') btnSendImageApp.click();
+    else if (action === 'open-location') {
+      if (selectedImageIndexes.size > 1) {
+        await openSelectedImagesInFolder();
+      } else if (activePost?.images?.[imageIndex]) {
+        await openImageInFolderLocation(activePost.images[imageIndex], activePost, imageIndex);
+      }
+    }
     else if (action === 'delete') btnDeleteSelectedImages.click();
     else if (action === 'copy') await copyImageToClipboard(activePost.images[imageIndex].dataUrl);
   });
@@ -884,7 +1041,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     btnRenameSelectedImages.disabled = count === 0;
     btnRotateLeftImages.disabled = count === 0;
     btnRotateRightImages.disabled = count === 0;
-    btnSendImageApp.disabled = count === 0;
+    if (btnOpenFolderLocation) btnOpenFolderLocation.disabled = count === 0;
     btnOptimizeSelectedImages.disabled = count === 0;
     btnDeleteSelectedImages.disabled = count === 0;
   }
@@ -1070,6 +1227,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   lightboxPrevBtn.addEventListener('click', () => window.changeLightbox(-1));
   lightboxNextBtn.addEventListener('click', () => window.changeLightbox(1));
   lightboxCopyBtn.addEventListener('click', window.copyCurrentLightboxImage);
+  lightboxOpenLocationBtn?.addEventListener('click', async () => {
+    const list = currentLightboxList || activePost?.images || [];
+    if (!list.length) return;
+    const item = list[activeLightboxIndex];
+    if (!item) return;
+    const postId = item.postId || activePost?.id;
+    const imgIdx = item.imageIndex !== undefined ? item.imageIndex : activeLightboxIndex;
+    const post = postId ? allPosts.find(p => p.id === postId) : activePost;
+    const imageInfo = item.image || item;
+    await openImageInFolderLocation(imageInfo, post, imgIdx);
+  });
   lightbox.addEventListener('click', (event) => {
     if (event.target === lightbox) window.closeLightbox();
   });
@@ -1669,6 +1837,7 @@ document.addEventListener('DOMContentLoaded', async () => {
               <button type="button" class="btn-card-action view-btn" title="Xem ảnh lớn">👁</button>
               <button type="button" class="btn-card-action tag-btn" title="Gắn tag">🏷</button>
               <button type="button" class="btn-card-action copy-btn" title="Sao chép ảnh">📋</button>
+              <button type="button" class="btn-card-action open-loc-btn" title="Mở vị trí file trong thư mục">📂</button>
               <a class="btn-card-action dl-btn" href="#" download="${escapeHtml(imgObj.filename || `photo_${imageIndex + 1}.jpg`)}" title="Tải ảnh">⬇</a>
             </div>
           </div>
@@ -1743,6 +1912,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         card.querySelector('.copy-btn').addEventListener('click', async (e) => {
           e.stopPropagation();
           await copyImageToClipboard(imgSrc);
+        });
+
+        card.querySelector('.open-loc-btn')?.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const post = allPosts.find(p => p.id === postId);
+          await openImageInFolderLocation(imgObj, post, imageIndex);
         });
 
         card.querySelector('.dl-btn').addEventListener('click', (e) => {
@@ -1859,7 +2034,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (btnGlobalBatchTag) btnGlobalBatchTag.disabled = count === 0;
     if (btnGlobalBatchRotLeft) btnGlobalBatchRotLeft.disabled = count === 0;
     if (btnGlobalBatchRotRight) btnGlobalBatchRotRight.disabled = count === 0;
-    if (btnGlobalBatchSendV2) btnGlobalBatchSendV2.disabled = count === 0;
+    if (btnGlobalBatchOpenLocation) btnGlobalBatchOpenLocation.disabled = count === 0;
     if (btnGlobalBatchZip) btnGlobalBatchZip.disabled = count === 0;
     if (btnGlobalBatchDelete) btnGlobalBatchDelete.disabled = count === 0;
   }
@@ -1947,57 +2122,46 @@ document.addEventListener('DOMContentLoaded', async () => {
     showToast(`✎ Đã đổi tên ${selectedGlobalKeys.size} ảnh`);
   }
 
-  // Gửi ảnh chọn trong kho toàn cục sang App V2
-  async function sendSelectedGlobalImagesToAppV2() {
+  // Mở vị trí các ảnh chọn trong kho toàn cục
+  async function openSelectedGlobalImagesInFolder() {
     if (!selectedGlobalKeys.size) return;
     const count = selectedGlobalKeys.size;
-    const originalText = btnGlobalBatchSendV2 ? btnGlobalBatchSendV2.innerText : '';
-    if (btnGlobalBatchSendV2) {
-      btnGlobalBatchSendV2.disabled = true;
-      btnGlobalBatchSendV2.innerText = `Đang gửi 0/${count}`;
+    const originalText = btnGlobalBatchOpenLocation ? btnGlobalBatchOpenLocation.innerText : '';
+    if (btnGlobalBatchOpenLocation) {
+      btnGlobalBatchOpenLocation.disabled = true;
+      btnGlobalBatchOpenLocation.innerText = `Đang mở 0/${count}`;
     }
     try {
-      const formData = new FormData();
-      let currentIdx = 0;
+      let firstDownloadId = null;
+      let pos = 0;
       for (const key of selectedGlobalKeys) {
-        currentIdx++;
+        pos++;
         const [postId, idxStr] = key.split('__');
         const idx = Number(idxStr);
         const post = allPosts.find(p => p.id === postId);
         if (post && post.images && post.images[idx]) {
           const imageInfo = post.images[idx];
-          const response = await fetch(imageInfo.dataUrl);
-          if (!response.ok) throw new Error(`Không đọc được ảnh #${currentIdx}`);
-          const blob = await response.blob();
-          const filename = sanitizeImageFilename(imageInfo.filename || `douyin_photo_${currentIdx}`) || `douyin_photo_${currentIdx}`;
-          formData.append('files[]', blob, `${filename}.jpg`);
-          if (btnGlobalBatchSendV2) btnGlobalBatchSendV2.innerText = `Đang gửi ${currentIdx}/${count}`;
+          if (btnGlobalBatchOpenLocation) btnGlobalBatchOpenLocation.innerText = `Đang mở ${pos}/${count}`;
+          const id = await openImageInFolderLocation(imageInfo, post, idx);
+          if (!firstDownloadId && id) firstDownloadId = id;
         }
       }
-
-      const uploadResponse = await fetch('http://127.0.0.1:5000/api/upload', {
-        method: 'POST',
-        body: formData
-      });
-      if (!uploadResponse.ok) throw new Error(`App V2 trả về lỗi ${uploadResponse.status}`);
-      const result = await uploadResponse.json();
-      if (!result.success) throw new Error(result.error || 'App V2 không nhận được ảnh');
-
-      if (chrome?.tabs?.create) chrome.tabs.create({ url: 'http://127.0.0.1:5000' });
-      else window.open('http://127.0.0.1:5000', '_blank');
-      showToast(`✅ Đã gửi ${result.count || count} ảnh sang ứng dụng Xử lý ảnh V2`);
+      if (firstDownloadId && chrome?.downloads?.show) {
+        chrome.downloads.show(firstDownloadId);
+      }
+      showToast(`📂 Đã mở thư mục chứa ${count} ảnh`);
     } catch (error) {
-      console.error('Send global images to processor app failed:', error);
-      showToast('❌ Không kết nối được app V2. Hãy mở app trước rồi thử lại.');
+      console.error('Mở thư mục ảnh chọn thất bại:', error);
+      showToast(`❌ Không thể mở thư mục: ${error.message}`);
     } finally {
-      if (btnGlobalBatchSendV2) btnGlobalBatchSendV2.innerText = originalText;
+      if (btnGlobalBatchOpenLocation) btnGlobalBatchOpenLocation.innerText = originalText;
       syncGlobalBatchToolbar();
     }
   }
 
   btnGlobalBatchRotLeft?.addEventListener('click', () => rotateSelectedGlobalImages(-90));
   btnGlobalBatchRotRight?.addEventListener('click', () => rotateSelectedGlobalImages(90));
-  btnGlobalBatchSendV2?.addEventListener('click', sendSelectedGlobalImagesToAppV2);
+  btnGlobalBatchOpenLocation?.addEventListener('click', openSelectedGlobalImagesInFolder);
 
   btnGlobalSelectAll.addEventListener('click', () => {
     currentFilteredGlobalImages.forEach(item => selectedGlobalKeys.add(item.key));
