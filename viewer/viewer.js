@@ -157,12 +157,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (requestedId) {
     const target = allPosts.find(p => p.id === requestedId);
     if (target) {
-      selectPost(target);
+      await selectPost(target);
     } else if (allPosts.length > 0) {
-      selectPost(allPosts[0]);
+      await selectPost(allPosts[0]);
     }
   } else if (allPosts.length > 0) {
-    selectPost(allPosts[0]);
+    await selectPost(allPosts[0]);
   }
 
   if (requestedTab === 'photos') {
@@ -172,14 +172,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   // ===== REFRESH POSTS LIST =====
   async function refreshPostsList() {
     try {
-      allPosts = await DouyinDB.getAllPosts();
+      allPosts = await DouyinDB.getPostsSummary();
       // Tự động nhận diện Tỉnh thành cho bài chưa gắn thẻ to
       allPosts.forEach(p => {
         if (!p.province) {
           const detected = detectProvinceFromText(p.desc + ' ' + (p.englishCaption || ''));
           if (detected) {
             p.province = detected;
-            DouyinDB.savePost(p).catch(() => {});
+            DouyinDB.getPost(p.id).then(full => {
+              if (full) {
+                full.province = detected;
+                DouyinDB.savePost(full).catch(() => {});
+              }
+            }).catch(() => {});
           }
         }
       });
@@ -273,7 +278,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // ===== SELECT AND DISPLAY POST =====
-  function selectPost(post) {
+  async function selectPost(post) {
+    if (!post) return;
+    if (post.id && (!post.images || !post.images[0] || !post.images[0].dataUrl)) {
+      try {
+        const full = await DouyinDB.getPost(post.id);
+        if (full) post = full;
+      } catch (err) {
+        console.warn('Lỗi nạp chi tiết bài viết:', err);
+      }
+    }
     activePost = post;
     selectedImageIndexes.clear();
     lastSelectedImageIndex = null;
@@ -753,7 +767,15 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       // 3. Otherwise, save the image file to disk using chrome.downloads, then reveal it in folder
-      const dataUrl = imageInfo.dataUrl || imageInfo.thumbnailDataUrl;
+      let dataUrl = imageInfo.dataUrl;
+      if (!dataUrl && post?.id) {
+        const full = await DouyinDB.getPost(post.id);
+        if (full?.images?.[index]?.dataUrl) {
+          dataUrl = full.images[index].dataUrl;
+          imageInfo.dataUrl = dataUrl;
+        }
+      }
+      if (!dataUrl) dataUrl = imageInfo.thumbnailDataUrl;
       if (!dataUrl) throw new Error('Không có dữ liệu ảnh để lưu và mở thư mục.');
 
       let downloadUrl;
@@ -783,7 +805,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
 
       if (needRevoke) {
-        setTimeout(() => URL.revokeObjectURL(downloadUrl), 30000);
+        setTimeout(() => URL.revokeObjectURL(downloadUrl), 10000);
       }
 
       if (!downloadId) throw new Error('Không thể tải file.');
@@ -1055,7 +1077,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       .slice(0, 60);
   }
 
-  async function createPreviewImage(dataUrl, quality, maxDimension) {
+  async function createPreviewImage(dataUrl, quality = 0.68, maxDimension = 480) {
     const image = new Image();
     image.src = dataUrl;
     await new Promise((resolve, reject) => {
@@ -1073,6 +1095,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     const blob = await new Promise((resolve, reject) => {
       canvas.toBlob(result => result ? resolve(result) : reject(new Error('Không thể xuất JPEG')), 'image/jpeg', quality);
     });
+    canvas.width = 0;
+    canvas.height = 0;
+    image.src = '';
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onloadend = () => resolve(reader.result);
@@ -1081,7 +1106,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  async function rotateImageDataUrl(dataUrl, degrees, quality) {
+  async function rotateImageDataUrl(dataUrl, degrees, quality = 0.92) {
     const image = new Image();
     image.src = dataUrl;
     await new Promise((resolve, reject) => {
@@ -1101,6 +1126,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     const blob = await new Promise((resolve, reject) => {
       canvas.toBlob(result => result ? resolve(result) : reject(new Error('Không thể xuất ảnh đã xoay')), 'image/jpeg', quality);
     });
+    canvas.width = 0;
+    canvas.height = 0;
+    image.src = '';
     return blobToDataUrlForViewer(blob);
   }
 
@@ -1171,24 +1199,41 @@ document.addEventListener('DOMContentLoaded', async () => {
     lightbox.classList.add('active');
   }
 
-  function updateLightboxContent() {
+  async function updateLightboxContent() {
     const list = currentLightboxList || activePost?.images || [];
     if (!list.length) return;
     const current = list[activeLightboxIndex];
-    const dataUrl = current.dataUrl || (current.image && current.image.dataUrl) || '';
-    lightboxImg.src = dataUrl;
-    lightboxCounter.innerText = `${activeLightboxIndex + 1} / ${list.length}`;
+    let dataUrl = current.dataUrl || (current.image && current.image.dataUrl) || '';
     const filename = current.filename || (current.image && current.image.filename) || `photo_${activeLightboxIndex + 1}.jpg`;
+    const thumbUrl = current.thumbnailDataUrl || (current.image && current.image.thumbnailDataUrl) || dataUrl;
+
+    lightboxImg.src = dataUrl || thumbUrl;
+    lightboxCounter.innerText = `${activeLightboxIndex + 1} / ${list.length}`;
     if (lightboxFilename) {
       lightboxFilename.innerText = filename ? `— ${filename}` : '';
     }
-    lightboxDlBtn.href = dataUrl;
+    lightboxDlBtn.href = dataUrl || thumbUrl;
     lightboxDlBtn.download = filename;
 
     if (lightboxFavBtn) {
       const isFav = Boolean(current.favorite || (current.image && current.image.favorite));
       lightboxFavBtn.className = `btn-lightbox btn-lightbox-star ${isFav ? 'favorited' : ''}`;
       lightboxFavBtn.innerText = isFav ? '⭐ Đã thích' : '⭐ Yêu thích';
+    }
+
+    // Lazy load full dataUrl if opened from summary
+    if (!dataUrl && current.postId) {
+      const p = await DouyinDB.getPost(current.postId);
+      if (p && p.images && p.images[current.imageIndex]) {
+        const fullData = p.images[current.imageIndex].dataUrl;
+        if (fullData) {
+          if (current.image) current.image.dataUrl = fullData;
+          if (activeLightboxIndex === list.indexOf(current)) {
+            lightboxImg.src = fullData;
+            lightboxDlBtn.href = fullData;
+          }
+        }
+      }
     }
   }
 
@@ -1335,6 +1380,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   async function exportPostZip(post) {
+    if (!post) return;
+    if (!post.images?.[0]?.dataUrl) {
+      post = await DouyinDB.getPost(post.id) || post;
+    }
     showToast('📦 Đang nén toàn bộ ảnh JPG và nội dung thành ZIP...');
     const zip = new JSZip();
     const imgFolder = zip.folder('images');
@@ -1342,8 +1391,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Add images
     for (let i = 0; i < (post.images || []).length; i++) {
       const item = post.images[i];
-      const base64Data = item.dataUrl.split(',')[1];
-      imgFolder.file(item.filename || `photo_${i + 1}.jpg`, base64Data, { base64: true });
+      if (item.dataUrl) {
+        const base64Data = item.dataUrl.split(',')[1];
+        imgFolder.file(item.filename || `photo_${i + 1}.jpg`, base64Data, { base64: true });
+      }
     }
 
     // Add caption txt
@@ -1368,7 +1419,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     zip.file('post_facebook.txt', txt);
     zip.file('notes.txt', post.notes || '');
 
-    const blob = await zip.generateAsync({ type: 'blob' });
+    const blob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -1377,7 +1428,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
     showToast('✅ Đã tải xong file ZIP!');
   }
 
@@ -1963,16 +2014,21 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // ===== HƯỚNG C: TOGGLE FAVORITE =====
   async function toggleImageFavorite(postId, imageIndex) {
-    const post = allPosts.find(p => p.id === postId);
-    if (!post || !post.images || !post.images[imageIndex]) return;
+    const full = await DouyinDB.getPost(postId);
+    if (!full || !full.images || !full.images[imageIndex]) return;
 
-    const img = post.images[imageIndex];
+    const img = full.images[imageIndex];
     img.favorite = !img.favorite;
 
-    await DouyinDB.savePost(post);
+    await DouyinDB.savePost(full);
+
+    const summaryPost = allPosts.find(p => p.id === postId);
+    if (summaryPost && summaryPost.images && summaryPost.images[imageIndex]) {
+      summaryPost.images[imageIndex].favorite = img.favorite;
+    }
 
     if (activePost && activePost.id === postId) {
-      activePost = post;
+      activePost = full;
       renderImagesGrid(activePost.images || []);
     }
 
@@ -1996,16 +2052,22 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // ===== EDIT TAGS FOR GLOBAL IMAGE =====
   async function editGlobalImageTags(postId, imageIndex) {
-    const post = allPosts.find(p => p.id === postId);
-    if (!post || !post.images || !post.images[imageIndex]) return;
-    const img = post.images[imageIndex];
+    const full = await DouyinDB.getPost(postId);
+    if (!full || !full.images || !full.images[imageIndex]) return;
+    const img = full.images[imageIndex];
     const current = (img.tags || []).map(t => `#${t}`).join(' ');
     const value = prompt('Paste danh sách hashtag cho bức ảnh này (bắt đầu bằng #):', current);
     if (value === null) return;
     img.tags = parseImageTags(value).slice(0, 200);
-    await DouyinDB.savePost(post);
+    await DouyinDB.savePost(full);
+
+    const summaryPost = allPosts.find(p => p.id === postId);
+    if (summaryPost && summaryPost.images && summaryPost.images[imageIndex]) {
+      summaryPost.images[imageIndex].tags = img.tags;
+    }
+
     if (activePost && activePost.id === postId) {
-      activePost = post;
+      activePost = full;
       renderImagesGrid(activePost.images || []);
     }
     renderGlobalTagCloud();
@@ -2048,7 +2110,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     showToast(`Đang xoay ${count} ảnh ${degrees < 0 ? 'sang trái' : 'sang phải'}...`);
 
     try {
-      const affectedPostIds = new Set();
+      const affectedPostMap = new Map();
       let currentIdx = 0;
 
       for (const key of selectedGlobalKeys) {
@@ -2056,29 +2118,37 @@ document.addEventListener('DOMContentLoaded', async () => {
         showToast(`Đang xoay ảnh ${currentIdx}/${count}...`);
         const [postId, idxStr] = key.split('__');
         const idx = Number(idxStr);
-        const post = allPosts.find(p => p.id === postId);
-        if (post && post.images && post.images[idx]) {
-          const img = post.images[idx];
-          img.dataUrl = await rotateImageDataUrl(img.dataUrl, degrees, 1);
+        if (!affectedPostMap.has(postId)) {
+          const full = await DouyinDB.getPost(postId);
+          if (full) affectedPostMap.set(postId, full);
+        }
+        const fullPost = affectedPostMap.get(postId);
+        if (fullPost && fullPost.images && fullPost.images[idx]) {
+          const img = fullPost.images[idx];
+          img.dataUrl = await rotateImageDataUrl(img.dataUrl, degrees, 0.92);
           img.thumbnailDataUrl = await createPreviewImage(img.dataUrl, 0.68, 480);
-          affectedPostIds.add(postId);
         }
       }
 
-      for (const pid of affectedPostIds) {
-        const p = allPosts.find(item => item.id === pid);
-        if (p) {
-          p.thumbUrl = p.images[0]?.thumbnailDataUrl || p.images[0]?.dataUrl || '';
-          await DouyinDB.savePost(p);
+      for (const [pid, fullPost] of affectedPostMap.entries()) {
+        fullPost.thumbUrl = fullPost.images[0]?.thumbnailDataUrl || fullPost.images[0]?.dataUrl || '';
+        await DouyinDB.savePost(fullPost);
+
+        const summary = allPosts.find(item => item.id === pid);
+        if (summary) {
+          summary.thumbUrl = fullPost.thumbUrl;
+          summary.images = (fullPost.images || []).map(im => ({
+            filename: im.filename,
+            tags: im.tags,
+            favorite: im.favorite,
+            thumbnailDataUrl: im.thumbnailDataUrl
+          }));
         }
       }
 
-      if (activePost && affectedPostIds.has(activePost.id)) {
-        const updated = allPosts.find(p => p.id === activePost.id);
-        if (updated) {
-          activePost = updated;
-          renderImagesGrid(activePost.images || []);
-        }
+      if (activePost && affectedPostMap.has(activePost.id)) {
+        activePost = affectedPostMap.get(activePost.id);
+        renderImagesGrid(activePost.images || []);
       }
 
       renderGlobalPhotoGrid();
@@ -2115,8 +2185,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     }
     for (const pid of modifiedPostIds) {
-      const p = allPosts.find(item => item.id === pid);
-      if (p) await DouyinDB.savePost(p);
+      const full = await DouyinDB.getPost(pid);
+      const summary = allPosts.find(item => item.id === pid);
+      if (full && summary) {
+        (summary.images || []).forEach((sImg, sIdx) => {
+          if (full.images?.[sIdx]) full.images[sIdx].filename = sImg.filename;
+        });
+        await DouyinDB.savePost(full);
+      }
     }
     renderGlobalPhotoGrid();
     showToast(`✎ Đã đổi tên ${selectedGlobalKeys.size} ảnh`);
@@ -2199,8 +2275,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     for (const pid of modifiedPostIds) {
-      const p = allPosts.find(item => item.id === pid);
-      if (p) await DouyinDB.savePost(p);
+      const full = await DouyinDB.getPost(pid);
+      const summary = allPosts.find(item => item.id === pid);
+      if (full && summary) {
+        (summary.images || []).forEach((sImg, sIdx) => {
+          if (full.images?.[sIdx]) full.images[sIdx].favorite = sImg.favorite;
+        });
+        await DouyinDB.savePost(full);
+      }
     }
 
     updateGlobalCounts();
@@ -2231,8 +2313,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     for (const pid of modifiedPostIds) {
-      const p = allPosts.find(item => item.id === pid);
-      if (p) await DouyinDB.savePost(p);
+      const full = await DouyinDB.getPost(pid);
+      const summary = allPosts.find(item => item.id === pid);
+      if (full && summary) {
+        (summary.images || []).forEach((sImg, sIdx) => {
+          if (full.images?.[sIdx]) full.images[sIdx].tags = sImg.tags;
+        });
+        await DouyinDB.savePost(full);
+      }
     }
 
     updateGlobalCounts();
@@ -2248,11 +2336,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     showToast(`📦 Đang nén ${selectedGlobalKeys.size} ảnh đã chọn thành file ZIP...`);
     const zip = new JSZip();
     let count = 0;
+    const postCache = new Map();
 
-    selectedGlobalKeys.forEach(key => {
+    for (const key of selectedGlobalKeys) {
       const [postId, idxStr] = key.split('__');
       const idx = Number(idxStr);
-      const post = allPosts.find(p => p.id === postId);
+      if (!postCache.has(postId)) {
+        const full = await DouyinDB.getPost(postId);
+        if (full) postCache.set(postId, full);
+      }
+      const post = postCache.get(postId);
       if (post && post.images && post.images[idx]) {
         const imgObj = post.images[idx];
         const base64Data = (imgObj.dataUrl || '').split(',')[1];
@@ -2262,9 +2355,9 @@ document.addEventListener('DOMContentLoaded', async () => {
           count++;
         }
       }
-    });
+    }
 
-    const blob = await zip.generateAsync({ type: 'blob' });
+    const blob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -2272,7 +2365,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
     showToast(`✅ Đã tải xong ZIP chứa ${count} ảnh!`);
   });
 
@@ -2291,13 +2384,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     for (const [postId, indexes] of postMap.entries()) {
-      const post = allPosts.find(p => p.id === postId);
-      if (post && post.images) {
+      const full = await DouyinDB.getPost(postId);
+      if (full && full.images) {
         indexes.sort((a, b) => b - a).forEach(idx => {
-          post.images.splice(idx, 1);
+          full.images.splice(idx, 1);
         });
-        post.thumbUrl = post.images[0]?.thumbnailDataUrl || post.images[0]?.dataUrl || '';
-        await DouyinDB.savePost(post);
+        full.thumbUrl = full.images[0]?.thumbnailDataUrl || full.images[0]?.dataUrl || '';
+        await DouyinDB.savePost(full);
       }
     }
 
@@ -2524,7 +2617,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (value === null) return;
     const clean = value.trim();
     post.province = clean;
-    await DouyinDB.savePost(post);
+    const full = await DouyinDB.getPost(post.id);
+    if (full) {
+      full.province = clean;
+      await DouyinDB.savePost(full);
+    }
     updateProvinceBadge();
     populateProvinceFilter();
     renderGlobalProvinceCloud();
@@ -2551,9 +2648,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     for (const pid of affectedPostIds) {
       const post = allPosts.find(p => p.id === pid);
-      if (post) {
-        post.province = target;
-        await DouyinDB.savePost(post);
+      if (post) post.province = target;
+      const full = await DouyinDB.getPost(pid);
+      if (full) {
+        full.province = target;
+        await DouyinDB.savePost(full);
       }
     }
 

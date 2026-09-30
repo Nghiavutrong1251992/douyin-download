@@ -126,8 +126,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Update library count from IndexedDB
     try {
-      const posts = await DouyinDB.getAllPosts();
-      libraryCount.innerText = posts.length;
+      const count = await DouyinDB.getPostCount();
+      libraryCount.innerText = count;
     } catch (e) {}
   }
   loadSettings();
@@ -306,11 +306,17 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
     btnSyncOfflineFolder.disabled = true;
     offlineFolderStatus.innerText = '⏳ Đang đồng bộ toàn bộ kho...';
     try {
-      const posts = await DouyinDB.getAllPosts();
-      if (!posts.length) throw new Error('Kho Offline chưa có bài viết.');
-      await DouyinFiles.syncAll(posts, { requestPermission: true });
+      const summaries = await DouyinDB.getPostsSummary();
+      if (!summaries.length) throw new Error('Kho Offline chưa có bài viết.');
+      for (let i = 0; i < summaries.length; i++) {
+        offlineFolderStatus.innerText = `⏳ Đang đồng bộ bài ${i + 1}/${summaries.length}...`;
+        const fullPost = await DouyinDB.getPost(summaries[i].id);
+        if (fullPost) {
+          await DouyinFiles.savePost(fullPost, { requestPermission: i === 0 });
+        }
+      }
       const info = await DouyinFiles.getDirectoryInfo();
-      offlineFolderStatus.innerText = `✅ Đã đồng bộ ${posts.length} bài vào ${info.name}/Douyin_Offline`;
+      offlineFolderStatus.innerText = `✅ Đã đồng bộ ${summaries.length} bài vào ${info.name}/Douyin_Offline`;
     } catch (error) {
       offlineFolderStatus.innerText = `❌ ${error.message}`;
     } finally {
@@ -342,7 +348,7 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
         await DouyinDB.savePost(post);
       }
 
-      libraryCount.innerText = String((await DouyinDB.getAllPosts()).length);
+      libraryCount.innerText = String(await DouyinDB.getPostCount());
       const info = await DouyinFiles.getDirectoryInfo();
       offlineFolderStatus.innerText = `✅ Đã khôi phục ${posts.length} bài, ${restoredImages} ảnh từ ${info.name}`;
     } catch (error) {
@@ -631,7 +637,7 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
 
   // ===== HELPER: CONVERT BLOB TO CLEAN JPG VIA CANVAS =====
   // Strips all EXIF, tracking headers & Douyin watermark metadata
-  function convertBlobToCleanJpg(blob, quality = 1, maxDimension = null) {
+  function convertBlobToCleanJpg(blob, quality = 0.92, maxDimension = null) {
     return new Promise((resolve, reject) => {
       const img = new Image();
       const url = URL.createObjectURL(blob);
@@ -644,20 +650,25 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
           const scale = maxDimension ? Math.min(1, maxDimension / Math.max(sourceWidth, sourceHeight)) : 1;
           canvas.width = Math.max(1, Math.round(sourceWidth * scale));
           canvas.height = Math.max(1, Math.round(sourceHeight * scale));
-          const ctx = canvas.getContext('2d');
+          const ctx = canvas.getContext('2d', { alpha: false });
           ctx.fillStyle = '#FFFFFF';
           ctx.fillRect(0, 0, canvas.width, canvas.height);
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
           canvas.toBlob((jpgBlob) => {
+            canvas.width = 0;
+            canvas.height = 0;
+            img.src = '';
             if (jpgBlob) resolve(jpgBlob);
             else reject(new Error('Lỗi xuất canvas sang JPG'));
           }, 'image/jpeg', quality);
         } catch (err) {
+          img.src = '';
           reject(err);
         }
       };
       img.onerror = () => {
         URL.revokeObjectURL(url);
+        img.src = '';
         reject(new Error('Lỗi nạp ảnh vào canvas'));
       };
       img.src = url;
@@ -708,8 +719,12 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
         });
       });
 
-      const rawBlob = base64ToBlob(res.base64, res.type);
-      const cleanJpgBlob = await convertBlobToCleanJpg(rawBlob, 1);
+      let rawBlob = base64ToBlob(res.base64, res.type);
+      res.base64 = null; // free IPC string memory immediately
+
+      const cleanJpgBlob = await convertBlobToCleanJpg(rawBlob, 0.92);
+      rawBlob = null; // free rawBlob memory
+
       const cleanDataUrl = await blobToDataUrl(cleanJpgBlob);
       const thumbnailBlob = await convertBlobToCleanJpg(cleanJpgBlob, 0.68, 480);
       const thumbnailDataUrl = await blobToDataUrl(thumbnailBlob);
@@ -720,6 +735,9 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
         thumbnailDataUrl: thumbnailDataUrl,
         tags: []
       });
+
+      // Brief delay to allow garbage collection to run
+      await new Promise(resolve => setTimeout(resolve, 25));
     }
 
     // 2. Process avatar if present
@@ -772,8 +790,7 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
       console.warn('Không thể tự lưu bài vào thư mục Offline:', error);
     }
 
-    const posts = await DouyinDB.getAllPosts();
-    libraryCount.innerText = posts.length;
+    libraryCount.innerText = await DouyinDB.getPostCount();
 
     return postRecord;
   }
@@ -836,7 +853,7 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
       ].join('\n');
       zip.file('caption.txt', txt);
 
-      const blob = await zip.generateAsync({ type: 'blob' });
+      const blob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
       const dlUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = dlUrl;
@@ -860,8 +877,8 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
   // ===== OFFLINE LIBRARY FUNCTIONS =====
   async function loadLibrary() {
     try {
-      const posts = await DouyinDB.getAllPosts();
-      libraryCount.innerText = posts.length;
+      libraryCount.innerText = await DouyinDB.getPostCount();
+      const posts = await DouyinDB.getPostsSummary();
       libraryList.innerHTML = '';
 
       if (posts.length === 0) {
