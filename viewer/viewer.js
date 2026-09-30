@@ -22,6 +22,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const viewBadgeStatus = document.getElementById('view-badge-status');
   const viewProvinceBadge = document.getElementById('view-province-badge');
   const btnEditProvince = document.getElementById('btn-edit-province');
+  const viewFolderBadge = document.getElementById('view-folder-badge');
+  const btnEditFolderName = document.getElementById('btn-edit-folder-name');
   const viewTime = document.getElementById('view-time');
   const btnEditPublishDate = document.getElementById('btn-edit-publish-date');
   const viewImgCount = document.getElementById('view-img-count');
@@ -42,6 +44,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const btnDownloadAllJpg = document.getElementById('btn-download-all-jpg');
   const imageTagSearch = document.getElementById('image-tag-search');
   const btnTagAllImages = document.getElementById('btn-tag-all-images');
+  const btnRenamePostFolder = document.getElementById('btn-rename-post-folder');
   const btnSaveToFolder = document.getElementById('btn-save-to-folder');
   const selectedImagesCount = document.getElementById('selected-images-count');
   const btnSelectAllImages = document.getElementById('btn-select-all-images');
@@ -50,6 +53,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const btnRenameSelectedImages = document.getElementById('btn-rename-selected-images');
   const btnRotateLeftImages = document.getElementById('btn-rotate-left-images');
   const btnRotateRightImages = document.getElementById('btn-rotate-right-images');
+  const btnCopySelectedToFolder = document.getElementById('btn-copy-selected-to-folder');
   const btnOpenFolderLocation = document.getElementById('btn-open-folder-location');
   const btnOptimizeSelectedImages = document.getElementById('btn-optimize-selected-images');
   const btnDeleteSelectedImages = document.getElementById('btn-delete-selected-images');
@@ -107,6 +111,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const btnGlobalBatchTag = document.getElementById('btn-global-batch-tag');
   const btnGlobalBatchRotLeft = document.getElementById('btn-global-batch-rot-left');
   const btnGlobalBatchRotRight = document.getElementById('btn-global-batch-rot-right');
+  const btnGlobalBatchCopyToFolder = document.getElementById('btn-global-batch-copy-to-folder');
   const btnGlobalBatchOpenLocation = document.getElementById('btn-global-batch-open-location');
   const btnGlobalBatchZip = document.getElementById('btn-global-batch-zip');
   const btnGlobalBatchDelete = document.getElementById('btn-global-batch-delete');
@@ -115,6 +120,27 @@ document.addEventListener('DOMContentLoaded', async () => {
   const globalEmptyMsg = document.getElementById('global-empty-msg');
   const btnResetGlobalFilters = document.getElementById('btn-reset-global-filters');
 
+  // ===== SELECTION BASKET & DRAWER DOM REFERENCES =====
+  const selectionBasketBar = document.getElementById('selection-basket-bar');
+  const basketText = document.getElementById('basket-text');
+  const basketBtnCount = document.getElementById('basket-btn-count');
+  const basketDrawerBtnCount = document.getElementById('basket-drawer-btn-count');
+  const btnBasketCopyToFolder = document.getElementById('btn-basket-copy-to-folder');
+  const btnBasketSetFolderName = document.getElementById('btn-basket-set-folder-name');
+  const btnBasketZip = document.getElementById('btn-basket-zip');
+  const btnBasketDrawer = document.getElementById('btn-basket-drawer');
+  const btnBasketClear = document.getElementById('btn-basket-clear');
+  const basketDrawerModal = document.getElementById('basket-drawer-modal');
+  const basketDrawerBackdrop = document.getElementById('basket-drawer-backdrop');
+  const btnCloseBasketDrawer = document.getElementById('btn-close-basket-drawer');
+  const basketDrawerGrid = document.getElementById('basket-drawer-grid');
+  const drawerTotalCount = document.getElementById('drawer-total-count');
+  const drawerFooterStats = document.getElementById('drawer-footer-stats');
+  const basketFolderCustomInput = document.getElementById('basket-folder-custom-input');
+  const btnDrawerCopyFolder = document.getElementById('btn-drawer-copy-folder');
+  const btnDrawerZip = document.getElementById('btn-drawer-zip');
+  const btnDrawerClear = document.getElementById('btn-drawer-clear');
+
   const toastEl = document.getElementById('toast');
 
   // ===== State =====
@@ -122,6 +148,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   let currentFilter = 'all';
   let searchQuery = '';
   let imageTagQuery = '';
+  let customBasketFolderName = '';
   let selectedProvince = 'all';
   let selectedMonth = 'all';
   let selectedImageProcess = 'all';
@@ -143,6 +170,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   let globalActiveProvince = ''; // filter by Big Tag (Tỉnh thành)
   let globalActiveTag = '';
   let selectedGlobalKeys = new Set(); // Set of `${postId}__${imgIndex}`
+  let lastSelectedGlobalKey = null;
   let globalRenderGeneration = 0;
   let globalImageObserver = null;
 
@@ -254,6 +282,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                        post.thumbUrl || post.avatar || '../icons/icon48.png';
 
       const isPub = post.status === 'published';
+      const selectedCountForPost = (post.images || []).filter((_, idx) => selectedGlobalKeys.has(`${post.id}__${idx}`)).length;
 
       card.innerHTML = `
         <img class="card-thumb" src="${thumbUrl}" alt="Thumbnail" loading="lazy" decoding="async" />
@@ -264,13 +293,28 @@ document.addEventListener('DOMContentLoaded', async () => {
           <div class="card-bottom-row">
             <div class="card-statuses">
               <span class="card-badge ${isPub ? 'published' : 'pending'}">${isPub ? 'Đã đăng' : 'Chưa đăng'}</span>
+              ${post.folderName ? `<span class="card-badge folder-name-badge" title="Tên thư mục: ${escapeHtml(post.folderName)} (Bấm để đổi tên)">📁 ${escapeHtml(post.folderName)}</span>` : `<span class="card-badge btn-card-add-folder" title="Bấm để đặt tên thư mục bài viết">+ Folder</span>`}
               ${post.province ? `<span class="card-badge province" title="Tỉnh thành">📍 ${escapeHtml(post.province)}</span>` : ''}
+              ${selectedCountForPost > 0 ? `<span class="card-badge selected-photos-badge" title="Đã chọn ${selectedCountForPost} ảnh từ bài này">🧺 ${selectedCountForPost} ảnh</span>` : ''}
               <span class="card-badge ${post.imageProcessed ? 'processed' : 'unprocessed'}">${post.imageProcessed ? '✓ Đã xử lý' : 'Chưa xử lý'}</span>
             </div>
             <span class="card-count">${(post.images || []).length} ảnh</span>
           </div>
         </div>
       `;
+
+      const folderBadge = card.querySelector('.folder-name-badge, .btn-card-add-folder');
+      if (folderBadge) {
+        folderBadge.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          await editPostFolderName(post);
+        });
+      }
+      card.addEventListener('contextmenu', async (e) => {
+        if (e.target.closest('.card-thumb')) return;
+        e.preventDefault();
+        await editPostFolderName(post);
+      });
 
       card.addEventListener('click', () => selectPost(post));
       postsListEl.appendChild(card);
@@ -289,9 +333,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     }
     activePost = post;
-    selectedImageIndexes.clear();
     lastSelectedImageIndex = null;
+    syncImageSelectionUi();
     updateImageSelectionToolbar();
+    updateBasketBar();
     emptyStateEl.classList.add('hidden');
     postViewEl.classList.remove('hidden');
 
@@ -305,6 +350,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     viewTime.innerText = `📅 Ngày tác giả đăng: ${formatPublishedDate(post)}${post.publishDateManual ? ' (thủ công)' : ''}`;
     viewImgCount.innerText = `🖼️ ${(post.images || []).length} ảnh JPG`;
     updateProvinceBadge();
+    updateFolderBadge();
 
     if (post.sourceUrl || post.url) {
       viewOriginLink.href = post.sourceUrl || post.url;
@@ -453,14 +499,15 @@ document.addEventListener('DOMContentLoaded', async () => {
       for (; nextIndex < batchEnd; nextIndex++) {
         const { image: imgObj, originalIndex: idx } = visibleImages[nextIndex];
         const imgSrc = imgObj.thumbnailDataUrl || imgObj.dataUrl;
+        const isSelected = selectedGlobalKeys.has(`${activePost.id}__${idx}`);
         const card = document.createElement('div');
-        card.className = `gallery-photo-card ${selectedImageIndexes.has(idx) ? 'selected' : ''}`;
+        card.className = `gallery-photo-card ${isSelected ? 'selected' : ''}`;
         card.dataset.imageIndex = String(idx);
 
         card.innerHTML = `
           <div class="photo-wrapper">
             <img class="photo-img" alt="Ảnh ${idx + 1}" loading="lazy" decoding="async" />
-            <input class="image-select-checkbox" type="checkbox" ${selectedImageIndexes.has(idx) ? 'checked' : ''} aria-label="Chọn ảnh ${idx + 1}">
+            <input class="image-select-checkbox" type="checkbox" ${isSelected ? 'checked' : ''} aria-label="Chọn ảnh ${idx + 1}">
             <span class="photo-index-tag">#${idx + 1}</span>
             <div class="photo-tags">${renderTagChips(imgObj.tags)}</div>
             <div class="photo-actions-overlay">
@@ -488,17 +535,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         card.addEventListener('click', (e) => {
           if (e.target.closest('.photo-actions-overlay')) return;
-          setImageSelected(idx, !selectedImageIndexes.has(idx), e.shiftKey);
+          const currentSelected = selectedGlobalKeys.has(`${activePost.id}__${idx}`);
+          setImageSelected(idx, !currentSelected, e.shiftKey);
           syncImageSelectionUi();
         });
 
         card.addEventListener('contextmenu', (e) => {
           e.preventDefault();
-          if (!selectedImageIndexes.has(idx)) {
-            selectedImageIndexes.add(idx);
-            lastSelectedImageIndex = idx;
-            updateImageSelectionToolbar();
-            syncImageSelectionUi();
+          if (!selectedGlobalKeys.has(`${activePost.id}__${idx}`)) {
+            setImageSelected(idx, true);
           }
           openImageContextMenu(e.clientX, e.clientY, idx);
         });
@@ -609,16 +654,27 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   btnSelectAllImages.addEventListener('click', () => {
-    if (!activePost) return;
-    selectedImageIndexes = new Set(activePost.images.map((_, index) => index));
+    if (!activePost?.images) return;
+    activePost.images.forEach((_, index) => {
+      selectedGlobalKeys.add(`${activePost.id}__${index}`);
+    });
     syncImageSelectionUi();
     updateImageSelectionToolbar();
+    syncGlobalBatchToolbar();
+    updateBasketBar();
+    renderSidebarList();
   });
 
   btnClearImageSelection.addEventListener('click', () => {
-    selectedImageIndexes.clear();
+    if (!activePost?.images) return;
+    activePost.images.forEach((_, index) => {
+      selectedGlobalKeys.delete(`${activePost.id}__${index}`);
+    });
     syncImageSelectionUi();
     updateImageSelectionToolbar();
+    syncGlobalBatchToolbar();
+    updateBasketBar();
+    renderSidebarList();
   });
 
   btnTagSelectedImages.addEventListener('click', async () => {
@@ -678,7 +734,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   function getDownloadPathForImage(imageInfo, post, fallbackIndex = 0) {
     let folderName = 'Douyin_Photos';
     if (post) {
-      if (typeof DouyinFiles !== 'undefined' && typeof DouyinFiles.getPostFolderName === 'function') {
+      if (post.folderName) {
+        folderName = post.folderName;
+      } else if (typeof DouyinFiles !== 'undefined' && typeof DouyinFiles.getPostFolderName === 'function') {
         folderName = DouyinFiles.getPostFolderName(post);
       } else {
         const date = new Date().toISOString().slice(0, 10);
@@ -828,33 +886,29 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   async function openSelectedImagesInFolder() {
-    const indexes = getSelectedImageIndexes();
-    if (!indexes.length || !activePost) return;
-    const originalText = btnOpenFolderLocation ? btnOpenFolderLocation.innerText : '';
-    if (btnOpenFolderLocation) {
-      btnOpenFolderLocation.disabled = true;
-      btnOpenFolderLocation.innerText = `Đang mở 0/${indexes.length}`;
+    const totalCount = selectedGlobalKeys.size;
+    if (!totalCount) return;
+
+    if (totalCount > 1) {
+      const ask = confirm(
+        `Bạn đang chọn ${totalCount} ảnh từ ${getUniqueSelectedPostsCount()} bài viết / thư mục khác nhau.\n\n` +
+        `Trình duyệt Windows Explorer chỉ có thể làm nổi bật 1 ảnh duy nhất tại 1 thời điểm nếu các ảnh nằm ở các thư mục khác nhau.\n\n` +
+        `👉 Bấm [OK] để Gom & Copy toàn bộ ${totalCount} ảnh vào 1 THƯ MỤC MỚI (Khuyên dùng!).\n` +
+        `👉 Bấm [Hủy] để chỉ mở vị trí file của ảnh đầu tiên.`
+      );
+      if (ask) {
+        await copySelectedImagesToNewFolder();
+        return;
+      }
     }
 
-    try {
-      let firstDownloadId = null;
-      for (let pos = 0; pos < indexes.length; pos++) {
-        const idx = indexes[pos];
-        const imageInfo = activePost.images[idx];
-        if (btnOpenFolderLocation) btnOpenFolderLocation.innerText = `Đang mở ${pos + 1}/${indexes.length}`;
-        const id = await openImageInFolderLocation(imageInfo, activePost, idx);
-        if (!firstDownloadId && id) firstDownloadId = id;
-      }
-      if (firstDownloadId && chrome?.downloads?.show) {
-        chrome.downloads.show(firstDownloadId);
-      }
-      showToast(`📂 Đã mở thư mục chứa ${indexes.length} ảnh`);
-    } catch (error) {
-      console.error('Mở thư mục ảnh chọn thất bại:', error);
-      showToast(`❌ Không thể mở thư mục: ${error.message}`);
-    } finally {
-      if (btnOpenFolderLocation) btnOpenFolderLocation.innerText = originalText;
-      updateImageSelectionToolbar();
+    const firstKey = [...selectedGlobalKeys][0];
+    const [postId, idxStr] = firstKey.split('__');
+    const idx = Number(idxStr);
+    const post = allPosts.find(p => p.id === postId) || activePost;
+    const img = post?.images?.[idx];
+    if (img && post) {
+      await openImageInFolderLocation(img, post, idx);
     }
   }
 
@@ -911,8 +965,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!indexes.length) return;
     if (!confirm(`Xóa vĩnh viễn ${indexes.length} ảnh đã chọn khỏi bài viết Offline?`)) return;
 
+    indexes.forEach(index => selectedGlobalKeys.delete(`${activePost.id}__${index}`));
     [...indexes].sort((a, b) => b - a).forEach(index => activePost.images.splice(index, 1));
-    selectedImageIndexes.clear();
     activePost.thumbUrl = activePost.images[0]?.thumbnailDataUrl || activePost.images[0]?.dataUrl || '';
     await DouyinDB.savePost(activePost);
     const folderSync = await syncPostFolderAfterImageDeletion();
@@ -921,6 +975,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderImagesGrid(activePost.images);
     renderSidebarList();
     updateImageSelectionToolbar();
+    updateBasketBar();
     showToast(folderSync === 'synced'
       ? `🗑️ Đã xóa ${indexes.length} ảnh khỏi kho và thư mục trên máy`
       : folderSync === 'failed'
@@ -929,32 +984,50 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   function getSelectedImageIndexes() {
-    return [...selectedImageIndexes]
-      .filter(index => activePost?.images?.[index])
-      .sort((a, b) => a - b);
+    if (!activePost || !activePost.images) return [];
+    return activePost.images
+      .map((_, index) => index)
+      .filter(index => selectedGlobalKeys.has(`${activePost.id}__${index}`));
+  }
+
+  function getUniqueSelectedPostsCount() {
+    const postIds = new Set();
+    selectedGlobalKeys.forEach(key => {
+      const [postId] = key.split('__');
+      postIds.add(postId);
+    });
+    return postIds.size;
   }
 
   function setImageSelected(index, selected, useRange = false) {
+    if (!activePost) return;
+    const postId = activePost.id;
     if (useRange && lastSelectedImageIndex !== null) {
       const start = Math.min(lastSelectedImageIndex, index);
       const end = Math.max(lastSelectedImageIndex, index);
       for (let current = start; current <= end; current++) {
-        if (selected) selectedImageIndexes.add(current);
-        else selectedImageIndexes.delete(current);
+        const key = `${postId}__${current}`;
+        if (selected) selectedGlobalKeys.add(key);
+        else selectedGlobalKeys.delete(key);
       }
     } else if (selected) {
-      selectedImageIndexes.add(index);
+      selectedGlobalKeys.add(`${postId}__${index}`);
     } else {
-      selectedImageIndexes.delete(index);
+      selectedGlobalKeys.delete(`${postId}__${index}`);
     }
     lastSelectedImageIndex = index;
+    syncImageSelectionUi();
     updateImageSelectionToolbar();
+    syncGlobalBatchToolbar();
+    updateBasketBar();
+    renderSidebarList();
   }
 
   function syncImageSelectionUi() {
+    if (!activePost) return;
     viewImageGrid.querySelectorAll('.gallery-photo-card[data-image-index]').forEach(card => {
       const index = Number(card.dataset.imageIndex);
-      const selected = selectedImageIndexes.has(index);
+      const selected = selectedGlobalKeys.has(`${activePost.id}__${index}`);
       card.classList.toggle('selected', selected);
       const checkbox = card.querySelector('.image-select-checkbox');
       if (checkbox) checkbox.checked = selected;
@@ -987,6 +1060,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     const globalKey = contextGlobalKey;
     closeImageContextMenu();
 
+    if (action === 'copy-folder') {
+      await copySelectedImagesToNewFolder();
+      return;
+    }
+
+    if (action === 'rename-folder') {
+      const activeKey = globalKey || (selectedGlobalKeys.size ? [...selectedGlobalKeys][0] : null);
+      if (activeKey) {
+        const [postId] = activeKey.split('__');
+        const targetPost = allPosts.find(p => p.id === postId) || activePost;
+        if (targetPost) await editPostFolderName(targetPost);
+      } else if (activePost) {
+        await editPostFolderName(activePost);
+      }
+      return;
+    }
+
     if (globalKey || currentAppTab === 'photos') {
       const activeKey = globalKey || (selectedGlobalKeys.size ? [...selectedGlobalKeys][0] : null);
       if (action === 'view') {
@@ -1008,13 +1098,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       } else if (action === 'rotate-right') {
         await rotateSelectedGlobalImages(90);
       } else if (action === 'open-location') {
-        if (activeKey) {
+        if (selectedGlobalKeys.size > 1) {
+          await openSelectedImagesInFolder();
+        } else if (activeKey) {
           const [postId, idxStr] = activeKey.split('__');
           const p = allPosts.find(item => item.id === postId);
           const img = p?.images?.[Number(idxStr)];
           if (img) await openImageInFolderLocation(img, p, Number(idxStr));
-        } else if (selectedGlobalKeys.size) {
-          await openSelectedGlobalImagesInFolder();
         }
       } else if (action === 'delete') {
         btnGlobalBatchDelete.click();
@@ -1041,11 +1131,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     else if (action === 'rotate-left') btnRotateLeftImages.click();
     else if (action === 'rotate-right') btnRotateRightImages.click();
     else if (action === 'open-location') {
-      if (selectedImageIndexes.size > 1) {
-        await openSelectedImagesInFolder();
-      } else if (activePost?.images?.[imageIndex]) {
-        await openImageInFolderLocation(activePost.images[imageIndex], activePost, imageIndex);
-      }
+      await openSelectedImagesInFolder();
     }
     else if (action === 'delete') btnDeleteSelectedImages.click();
     else if (action === 'copy') await copyImageToClipboard(activePost.images[imageIndex].dataUrl);
@@ -1057,15 +1143,34 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.addEventListener('scroll', closeImageContextMenu, true);
 
   function updateImageSelectionToolbar() {
-    const count = getSelectedImageIndexes().length;
-    selectedImagesCount.innerText = count ? `Đã chọn ${count} ảnh` : 'Chưa chọn ảnh';
-    btnTagSelectedImages.disabled = count === 0;
-    btnRenameSelectedImages.disabled = count === 0;
-    btnRotateLeftImages.disabled = count === 0;
-    btnRotateRightImages.disabled = count === 0;
-    if (btnOpenFolderLocation) btnOpenFolderLocation.disabled = count === 0;
-    btnOptimizeSelectedImages.disabled = count === 0;
-    btnDeleteSelectedImages.disabled = count === 0;
+    const postCount = getSelectedImageIndexes().length;
+    const totalCount = selectedGlobalKeys.size;
+    const uniquePosts = getUniqueSelectedPostsCount();
+
+    if (totalCount > 0) {
+      if (totalCount === postCount) {
+        selectedImagesCount.innerHTML = `Đã chọn <strong>${postCount}</strong>/${activePost?.images?.length || 0} ảnh bài này`;
+      } else {
+        selectedImagesCount.innerHTML = `Đã chọn <strong>${postCount}</strong> ảnh bài này <span class="selection-total-hint">(Tổng <strong>${totalCount}</strong> ảnh từ ${uniquePosts} bài)</span>`;
+      }
+    } else {
+      selectedImagesCount.innerText = 'Chưa chọn ảnh';
+    }
+
+    const hasPostSelection = postCount > 0;
+    const hasAnySelection = totalCount > 0;
+
+    btnTagSelectedImages.disabled = !hasPostSelection;
+    btnRenameSelectedImages.disabled = !hasPostSelection;
+    btnRotateLeftImages.disabled = !hasPostSelection;
+    btnRotateRightImages.disabled = !hasPostSelection;
+    if (btnCopySelectedToFolder) {
+      btnCopySelectedToFolder.disabled = !hasAnySelection;
+      btnCopySelectedToFolder.innerText = hasAnySelection ? `📁 Copy ra thư mục mới (${totalCount})` : '📁 Copy ra thư mục mới';
+    }
+    if (btnOpenFolderLocation) btnOpenFolderLocation.disabled = !hasAnySelection;
+    btnOptimizeSelectedImages.disabled = !hasPostSelection;
+    btnDeleteSelectedImages.disabled = !hasPostSelection;
   }
 
   function sanitizeImageFilename(value) {
@@ -1423,8 +1528,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    const safeTitle = (post.desc || 'douyin_post').replace(/[^a-zA-Z0-9_\u4e00-\u9fa5]/g, '_').slice(0, 30);
-    a.download = `[Offline]_${safeTitle}.zip`;
+    const folderName = post.folderName || (typeof DouyinFiles !== 'undefined' ? DouyinFiles.getPostFolderName(post) : (post.desc || 'douyin_post').replace(/[^a-zA-Z0-9_\u4e00-\u9fa5]/g, '_').slice(0, 30));
+    a.download = `[Offline]_${folderName}.zip`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1916,11 +2021,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         const checkbox = card.querySelector('.global-card-checkbox');
         checkbox.addEventListener('click', (e) => {
           e.stopPropagation();
-          setGlobalImageSelected(key, e.currentTarget.checked);
+          toggleGlobalImageSelected(key, e.shiftKey);
         });
 
-        // Click on thumbnail toggle select or preview
+        // Click on thumbnail to toggle select, dblclick for lightbox
         card.querySelector('.global-card-thumb-wrap').addEventListener('click', (e) => {
+          if (e.target.closest('.favorite-star-btn') || e.target.closest('.global-card-actions-overlay') || e.target.closest('.global-card-checkbox') || e.target.closest('.global-card-province-badge')) return;
+          toggleGlobalImageSelected(key, e.shiftKey);
+        });
+
+        card.querySelector('.global-card-thumb-wrap').addEventListener('dblclick', (e) => {
           if (e.target.closest('.favorite-star-btn') || e.target.closest('.global-card-actions-overlay') || e.target.closest('.global-card-checkbox') || e.target.closest('.global-card-province-badge')) return;
           const currentFilteredIdx = currentFilteredGlobalImages.findIndex(i => i.key === key);
           if (currentFilteredIdx !== -1) {
@@ -2077,10 +2187,47 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // ===== GLOBAL SELECTION & BATCH ACTIONS (HƯỚNG C) =====
+  function toggleGlobalImageSelected(key, useRange = false) {
+    const isSelected = !selectedGlobalKeys.has(key);
+    if (useRange && lastSelectedGlobalKey && currentFilteredGlobalImages && currentFilteredGlobalImages.length) {
+      const idxA = currentFilteredGlobalImages.findIndex(i => i.key === lastSelectedGlobalKey);
+      const idxB = currentFilteredGlobalImages.findIndex(i => i.key === key);
+      if (idxA !== -1 && idxB !== -1) {
+        const start = Math.min(idxA, idxB);
+        const end = Math.max(idxA, idxB);
+        for (let i = start; i <= end; i++) {
+          const itemKey = currentFilteredGlobalImages[i].key;
+          if (isSelected) selectedGlobalKeys.add(itemKey);
+          else selectedGlobalKeys.delete(itemKey);
+          const card = globalPhotoGrid.querySelector(`.global-photo-card[data-key="${itemKey}"]`);
+          if (card) {
+            card.classList.toggle('selected', isSelected);
+            const cb = card.querySelector('.global-card-checkbox');
+            if (cb) cb.checked = isSelected;
+          }
+        }
+      } else {
+        setGlobalImageSelected(key, isSelected);
+      }
+    } else {
+      setGlobalImageSelected(key, isSelected);
+    }
+    lastSelectedGlobalKey = key;
+    syncGlobalBatchToolbar();
+    updateImageSelectionToolbar();
+    syncImageSelectionUi();
+    updateBasketBar();
+    renderSidebarList();
+  }
+
   function setGlobalImageSelected(key, isSelected) {
     if (isSelected) selectedGlobalKeys.add(key);
     else selectedGlobalKeys.delete(key);
     syncGlobalBatchToolbar();
+    updateImageSelectionToolbar();
+    syncImageSelectionUi();
+    updateBasketBar();
+    renderSidebarList();
     const card = globalPhotoGrid.querySelector(`.global-photo-card[data-key="${key}"]`);
     if (card) {
       card.classList.toggle('selected', isSelected);
@@ -2096,6 +2243,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (btnGlobalBatchTag) btnGlobalBatchTag.disabled = count === 0;
     if (btnGlobalBatchRotLeft) btnGlobalBatchRotLeft.disabled = count === 0;
     if (btnGlobalBatchRotRight) btnGlobalBatchRotRight.disabled = count === 0;
+    if (btnGlobalBatchCopyToFolder) {
+      btnGlobalBatchCopyToFolder.disabled = count === 0;
+      btnGlobalBatchCopyToFolder.innerText = count ? `📁 Copy ra thư mục mới (${count})` : '📁 Copy ra thư mục mới';
+    }
     if (btnGlobalBatchOpenLocation) btnGlobalBatchOpenLocation.disabled = count === 0;
     if (btnGlobalBatchZip) btnGlobalBatchZip.disabled = count === 0;
     if (btnGlobalBatchDelete) btnGlobalBatchDelete.disabled = count === 0;
@@ -2200,44 +2351,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Mở vị trí các ảnh chọn trong kho toàn cục
   async function openSelectedGlobalImagesInFolder() {
-    if (!selectedGlobalKeys.size) return;
-    const count = selectedGlobalKeys.size;
-    const originalText = btnGlobalBatchOpenLocation ? btnGlobalBatchOpenLocation.innerText : '';
-    if (btnGlobalBatchOpenLocation) {
-      btnGlobalBatchOpenLocation.disabled = true;
-      btnGlobalBatchOpenLocation.innerText = `Đang mở 0/${count}`;
-    }
-    try {
-      let firstDownloadId = null;
-      let pos = 0;
-      for (const key of selectedGlobalKeys) {
-        pos++;
-        const [postId, idxStr] = key.split('__');
-        const idx = Number(idxStr);
-        const post = allPosts.find(p => p.id === postId);
-        if (post && post.images && post.images[idx]) {
-          const imageInfo = post.images[idx];
-          if (btnGlobalBatchOpenLocation) btnGlobalBatchOpenLocation.innerText = `Đang mở ${pos}/${count}`;
-          const id = await openImageInFolderLocation(imageInfo, post, idx);
-          if (!firstDownloadId && id) firstDownloadId = id;
-        }
-      }
-      if (firstDownloadId && chrome?.downloads?.show) {
-        chrome.downloads.show(firstDownloadId);
-      }
-      showToast(`📂 Đã mở thư mục chứa ${count} ảnh`);
-    } catch (error) {
-      console.error('Mở thư mục ảnh chọn thất bại:', error);
-      showToast(`❌ Không thể mở thư mục: ${error.message}`);
-    } finally {
-      if (btnGlobalBatchOpenLocation) btnGlobalBatchOpenLocation.innerText = originalText;
-      syncGlobalBatchToolbar();
-    }
+    await openSelectedImagesInFolder();
   }
 
   btnGlobalBatchRotLeft?.addEventListener('click', () => rotateSelectedGlobalImages(-90));
   btnGlobalBatchRotRight?.addEventListener('click', () => rotateSelectedGlobalImages(90));
   btnGlobalBatchOpenLocation?.addEventListener('click', openSelectedGlobalImagesInFolder);
+  btnGlobalBatchCopyToFolder?.addEventListener('click', copySelectedImagesToNewFolder);
+  btnCopySelectedToFolder?.addEventListener('click', copySelectedImagesToNewFolder);
 
   btnGlobalSelectAll.addEventListener('click', () => {
     currentFilteredGlobalImages.forEach(item => selectedGlobalKeys.add(item.key));
@@ -2247,16 +2368,26 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (cb) cb.checked = true;
     });
     syncGlobalBatchToolbar();
+    updateImageSelectionToolbar();
+    syncImageSelectionUi();
+    updateBasketBar();
+    renderSidebarList();
   });
 
   btnGlobalDeselect.addEventListener('click', () => {
     selectedGlobalKeys.clear();
+    lastSelectedGlobalKey = null;
+    lastSelectedImageIndex = null;
     globalPhotoGrid.querySelectorAll('.global-photo-card').forEach(card => {
       card.classList.remove('selected');
       const cb = card.querySelector('.global-card-checkbox');
       if (cb) cb.checked = false;
     });
     syncGlobalBatchToolbar();
+    updateImageSelectionToolbar();
+    syncImageSelectionUi();
+    updateBasketBar();
+    renderSidebarList();
   });
 
   // Batch Favorite
@@ -2331,12 +2462,268 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // Batch ZIP Download
-  btnGlobalBatchZip.addEventListener('click', async () => {
-    if (!selectedGlobalKeys.size) return;
-    showToast(`📦 Đang nén ${selectedGlobalKeys.size} ảnh đã chọn thành file ZIP...`);
+  btnGlobalBatchZip?.addEventListener('click', exportSelectedPhotosZip);
+
+  // ===== GOM VÀ COPY TOÀN BỘ ẢNH ĐÃ CHỌN RA 1 THƯ MỤC MỚI =====
+  async function copySelectedImagesToNewFolder() {
+    if (!selectedGlobalKeys.size) {
+      showToast('⚠️ Bạn chưa chọn ảnh nào để copy.');
+      return;
+    }
+
+    const selectedKeys = [...selectedGlobalKeys];
+    const totalCount = selectedKeys.length;
+
+    // Lấy thông tin các ảnh đã chọn từ các bài viết / folder khác nhau
+    const itemsToCopy = [];
+    const affectedPostIds = new Set();
+
+    for (const key of selectedKeys) {
+      const [postId, idxStr] = key.split('__');
+      const idx = Number(idxStr);
+      const postSummary = allPosts.find(p => p.id === postId);
+      if (postSummary && postSummary.images && postSummary.images[idx]) {
+        affectedPostIds.add(postId);
+        itemsToCopy.push({
+          key,
+          postId,
+          imageIndex: idx,
+          postSummary,
+          imageSummary: postSummary.images[idx]
+        });
+      }
+    }
+
+    if (!itemsToCopy.length) {
+      showToast('⚠️ Không tìm thấy dữ liệu ảnh đã chọn.');
+      return;
+    }
+
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
+    const initialName = customBasketFolderName || (basketFolderCustomInput ? basketFolderCustomInput.value.trim() : '') || `Douyin_Gom_${totalCount}anh_${dateStr}`;
+    const defaultFolderName = sanitizeImageFilename(initialName) || `Douyin_Gom_${totalCount}anh_${dateStr}`;
+
+    // 1. Ưu tiên File System Access API: Chọn hoặc tạo thư mục trực tiếp trên máy tính
+    if (window.showDirectoryPicker) {
+      try {
+        let parentDirHandle = null;
+        try {
+          parentDirHandle = await window.showDirectoryPicker({
+            mode: 'readwrite',
+            startIn: 'pictures'
+          });
+        } catch (pickerErr) {
+          if (pickerErr.name === 'AbortError') return; // Người dùng ấn Cancel / Hủy chọn thư mục
+          throw pickerErr;
+        }
+
+        if (parentDirHandle) {
+          const promptMsg = `Bạn đã chọn thư mục: "${parentDirHandle.name}"\n\nNhập tên thư mục con muốn tạo để lưu ${totalCount} ảnh (hoặc để trống nếu muốn lưu thẳng vào "${parentDirHandle.name}"):`;
+          const subfolderInput = prompt(promptMsg, defaultFolderName);
+          if (subfolderInput === null) return; // Người dùng hủy prompt
+
+          let targetDir = parentDirHandle;
+          const subfolderName = subfolderInput.trim();
+          if (subfolderName) {
+            customBasketFolderName = subfolderName;
+            if (basketFolderCustomInput) basketFolderCustomInput.value = subfolderName;
+            targetDir = await parentDirHandle.getDirectoryHandle(subfolderName, { create: true });
+          }
+
+          // Nạp cache dữ liệu gốc từ IndexedDB
+          const fullPostCache = new Map();
+          for (const pid of affectedPostIds) {
+            const full = await DouyinDB.getPost(pid);
+            if (full) fullPostCache.set(pid, full);
+          }
+
+          const usedFilenames = new Set();
+          const exportLog = [];
+
+          showToast(`📁 Bắt đầu copy ${totalCount} ảnh vào "${targetDir.name}"...`);
+
+          for (let i = 0; i < itemsToCopy.length; i++) {
+            const item = itemsToCopy[i];
+            const fullPost = fullPostCache.get(item.postId) || item.postSummary;
+            const fullImg = fullPost?.images?.[item.imageIndex];
+            const dataUrl = fullImg?.dataUrl || item.imageSummary.thumbnailDataUrl;
+
+            if (!dataUrl) {
+              console.warn('Không có dữ liệu ảnh:', item);
+              continue;
+            }
+
+            let originalName = item.imageSummary.filename || fullImg?.filename || `photo_${item.imageIndex + 1}.jpg`;
+            originalName = originalName.replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_');
+
+            let ext = '.jpg';
+            let nameWithoutExt = originalName;
+            const dotIdx = originalName.lastIndexOf('.');
+            if (dotIdx !== -1) {
+              ext = originalName.slice(dotIdx);
+              nameWithoutExt = originalName.slice(0, dotIdx);
+            }
+
+            let candidateName = originalName;
+            if (usedFilenames.has(candidateName)) {
+              const authorSafe = (item.postSummary.author || 'douyin').replace(/[<>:"/\\|?*\u0000-\u001F\s]/g, '_');
+              candidateName = `${authorSafe}_${nameWithoutExt}${ext}`;
+            }
+
+            let counter = 2;
+            while (usedFilenames.has(candidateName)) {
+              candidateName = `${nameWithoutExt}_${counter}${ext}`;
+              counter++;
+            }
+            usedFilenames.add(candidateName);
+
+            showToast(`📁 Đang copy (${i + 1}/${totalCount}): ${candidateName}`);
+
+            const blobRes = await fetch(dataUrl);
+            const blob = await blobRes.blob();
+
+            const fileHandle = await targetDir.getFileHandle(candidateName, { create: true });
+            const writable = await fileHandle.createWritable();
+            await writable.write(blob);
+            await writable.close();
+
+            exportLog.push({
+              filename: candidateName,
+              originalName,
+              author: item.postSummary.author,
+              province: item.postSummary.province || '',
+              tags: item.imageSummary.tags || fullImg?.tags || [],
+              sourceUrl: item.postSummary.sourceUrl || item.postSummary.url || '',
+              captionFb: item.postSummary.englishCaption || '',
+              captionZh: item.postSummary.desc || ''
+            });
+          }
+
+          // Tạo file tổng hợp thông tin bài viết và nguồn ảnh
+          try {
+            const logContent = [
+              '========================================================================',
+              `  DANH SÁCH ${itemsToCopy.length} ẢNH ĐÃ GOM VÀ COPY TỪ ${affectedPostIds.size} BÀI VIẾT / FOLDER KHÁC NHAU`,
+              `  Thời gian xuất: ${new Date().toLocaleString('vi-VN')}`,
+              `  Thư mục lưu: ${targetDir.name}`,
+              '========================================================================',
+              '',
+              ...exportLog.map((log, idx) => [
+                `[Ảnh ${idx + 1}] ${log.filename}`,
+                `  • Tác giả: @${log.author || 'N/A'}`,
+                `  • Tỉnh thành: ${log.province || 'Chưa gắn'}`,
+                `  • Tags: ${(log.tags || []).map(t => '#' + t).join(' ') || 'Không có'}`,
+                `  • Link gốc: ${log.sourceUrl || 'N/A'}`,
+                `  • Caption FB: ${(log.captionFb || '').slice(0, 150)}${(log.captionFb || '').length > 150 ? '...' : ''}`,
+                `  • Caption gốc: ${(log.captionZh || '').slice(0, 150)}${(log.captionZh || '').length > 150 ? '...' : ''}`,
+                ''
+              ].join('\n'))
+            ].join('\n');
+
+            const logHandle = await targetDir.getFileHandle('thong_tin_anh_da_copy.txt', { create: true });
+            const logWritable = await logHandle.createWritable();
+            await logWritable.write(logContent);
+            await logWritable.close();
+          } catch (logErr) {
+            console.warn('Không thể ghi file thong_tin_anh_da_copy.txt:', logErr);
+          }
+
+          showToast(`🎉 Thành công! Đã copy ${totalCount} ảnh vào thư mục "${targetDir.name}"!`);
+          return;
+        }
+      } catch (fsErr) {
+        console.warn('File System Access API failed or cancelled:', fsErr);
+        if (fsErr.name === 'AbortError') return;
+      }
+    }
+
+    // 2. Dự phòng: Tải qua chrome.downloads gom vào thư mục con trong Downloads
+    const folderNameInput = prompt(`Nhập tên thư mục mới để lưu ${totalCount} ảnh (sẽ nằm trong thư mục Tải về / Downloads của máy):`, defaultFolderName);
+    if (!folderNameInput) return;
+    const cleanFolderName = folderNameInput.trim().replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_');
+
+    const fullPostCache = new Map();
+    for (const pid of affectedPostIds) {
+      const full = await DouyinDB.getPost(pid);
+      if (full) fullPostCache.set(pid, full);
+    }
+
+    const usedFilenames = new Set();
+    let firstDownloadId = null;
+
+    showToast(`📁 Đang tải ${totalCount} ảnh vào thư mục Downloads/${cleanFolderName}...`);
+
+    for (let i = 0; i < itemsToCopy.length; i++) {
+      const item = itemsToCopy[i];
+      const fullPost = fullPostCache.get(item.postId) || item.postSummary;
+      const fullImg = fullPost?.images?.[item.imageIndex];
+      const dataUrl = fullImg?.dataUrl || item.imageSummary.thumbnailDataUrl;
+      if (!dataUrl) continue;
+
+      let originalName = item.imageSummary.filename || fullImg?.filename || `photo_${item.imageIndex + 1}.jpg`;
+      originalName = originalName.replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_');
+
+      let ext = '.jpg';
+      let nameWithoutExt = originalName;
+      const dotIdx = originalName.lastIndexOf('.');
+      if (dotIdx !== -1) {
+        ext = originalName.slice(dotIdx);
+        nameWithoutExt = originalName.slice(0, dotIdx);
+      }
+
+      let candidateName = originalName;
+      if (usedFilenames.has(candidateName)) {
+        const authorSafe = (item.postSummary.author || 'douyin').replace(/[<>:"/\\|?*\u0000-\u001F\s]/g, '_');
+        candidateName = `${authorSafe}_${nameWithoutExt}${ext}`;
+      }
+      let counter = 2;
+      while (usedFilenames.has(candidateName)) {
+        candidateName = `${nameWithoutExt}_${counter}${ext}`;
+        counter++;
+      }
+      usedFilenames.add(candidateName);
+
+      const blobRes = await fetch(dataUrl);
+      const blob = await blobRes.blob();
+      const objUrl = URL.createObjectURL(blob);
+
+      const dlId = await new Promise((resolve) => {
+        chrome.downloads.download({
+          url: objUrl,
+          filename: `${cleanFolderName}/${candidateName}`,
+          saveAs: false,
+          conflictAction: 'uniquify'
+        }, (id) => {
+          setTimeout(() => URL.revokeObjectURL(objUrl), 10000);
+          resolve(id);
+        });
+      });
+
+      if (!firstDownloadId && dlId) firstDownloadId = dlId;
+    }
+
+    if (firstDownloadId && chrome?.downloads?.show) {
+      await waitForDownloadComplete(firstDownloadId);
+      chrome.downloads.show(firstDownloadId);
+    }
+    showToast(`🎉 Đã tải xong ${totalCount} ảnh vào thư mục Downloads/${cleanFolderName}!`);
+  }
+
+  // ===== TẢI ZIP TỔNG HỢP TOÀN BỘ ẢNH ĐÃ CHỌN =====
+  async function exportSelectedPhotosZip() {
+    if (!selectedGlobalKeys.size) {
+      showToast('⚠️ Chưa chọn ảnh nào để tải ZIP.');
+      return;
+    }
+    const totalCount = selectedGlobalKeys.size;
+    showToast(`📦 Đang nén ${totalCount} ảnh đã chọn thành file ZIP...`);
     const zip = new JSZip();
+    const imgFolder = zip.folder('images');
     let count = 0;
     const postCache = new Map();
+    const usedFilenames = new Set();
+    const textLogs = [];
 
     for (const key of selectedGlobalKeys) {
       const [postId, idxStr] = key.split('__');
@@ -2345,28 +2732,179 @@ document.addEventListener('DOMContentLoaded', async () => {
         const full = await DouyinDB.getPost(postId);
         if (full) postCache.set(postId, full);
       }
-      const post = postCache.get(postId);
+      const post = postCache.get(postId) || allPosts.find(p => p.id === postId);
       if (post && post.images && post.images[idx]) {
         const imgObj = post.images[idx];
-        const base64Data = (imgObj.dataUrl || '').split(',')[1];
+        const dataUrl = imgObj.dataUrl || imgObj.thumbnailDataUrl;
+        const base64Data = (dataUrl || '').split(',')[1];
         if (base64Data) {
-          const filename = imgObj.filename || `photo_${count + 1}.jpg`;
-          zip.file(filename, base64Data, { base64: true });
+          let originalName = imgObj.filename || `photo_${count + 1}.jpg`;
+          originalName = originalName.replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_');
+          let ext = '.jpg';
+          let namePart = originalName;
+          const dotIdx = originalName.lastIndexOf('.');
+          if (dotIdx !== -1) {
+            ext = originalName.slice(dotIdx);
+            namePart = originalName.slice(0, dotIdx);
+          }
+          let finalName = originalName;
+          if (usedFilenames.has(finalName)) {
+            const authorSafe = (post.author || 'douyin').replace(/[<>:"/\\|?*\u0000-\u001F\s]/g, '_');
+            finalName = `${authorSafe}_${namePart}${ext}`;
+          }
+          let c = 2;
+          while (usedFilenames.has(finalName)) {
+            finalName = `${namePart}_${c}${ext}`;
+            c++;
+          }
+          usedFilenames.add(finalName);
+
+          imgFolder.file(finalName, base64Data, { base64: true });
           count++;
+
+          textLogs.push(`[Ảnh ${count}] ${finalName}\n  Tác giả: @${post.author || 'N/A'}\n  Nguồn: ${post.sourceUrl || post.url || 'N/A'}\n  Tags: ${(imgObj.tags || []).join(', ')}\n  Caption FB: ${(post.englishCaption || '').slice(0, 150)}...\n`);
         }
       }
     }
+
+    zip.file('danh_sach_anh.txt', textLogs.join('\n'));
 
     const blob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `[Douyin_Selected_${count}_Photos].zip`;
+    a.download = `[Douyin_Gom_${count}_Photos].zip`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 10000);
     showToast(`✅ Đã tải xong ZIP chứa ${count} ảnh!`);
+  }
+
+  // ===== SELECTION BASKET BAR & DRAWER UTILITIES =====
+  function updateBasketBar() {
+    if (!selectionBasketBar) return;
+    const totalCount = selectedGlobalKeys.size;
+    const postCount = getUniqueSelectedPostsCount();
+    if (totalCount > 0) {
+      selectionBasketBar.classList.remove('hidden');
+      if (basketText) {
+        basketText.innerHTML = `Đã chọn <strong>${totalCount}</strong> ảnh từ <strong>${postCount}</strong> ${postCount > 1 ? 'thư mục / bài viết' : 'bài viết'}`;
+      }
+      if (basketBtnCount) basketBtnCount.innerText = totalCount;
+      if (basketDrawerBtnCount) basketDrawerBtnCount.innerText = totalCount;
+    } else {
+      selectionBasketBar.classList.add('hidden');
+      if (basketDrawerModal) basketDrawerModal.classList.add('hidden');
+    }
+  }
+
+  function openBasketDrawer() {
+    if (!basketDrawerModal) return;
+    if (basketFolderCustomInput) {
+      basketFolderCustomInput.value = customBasketFolderName;
+    }
+    renderBasketDrawer();
+    basketDrawerModal.classList.remove('hidden');
+  }
+
+  function closeBasketDrawer() {
+    if (basketDrawerModal) basketDrawerModal.classList.add('hidden');
+  }
+
+  function renderBasketDrawer() {
+    if (!basketDrawerGrid) return;
+    basketDrawerGrid.innerHTML = '';
+    const totalCount = selectedGlobalKeys.size;
+    const postCount = getUniqueSelectedPostsCount();
+    if (drawerTotalCount) drawerTotalCount.innerText = totalCount;
+    if (drawerFooterStats) drawerFooterStats.innerText = `${totalCount} ảnh từ ${postCount} bài viết / thư mục`;
+
+    if (totalCount === 0) {
+      basketDrawerGrid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 40px; color: #94a3b8;">Giỏ ảnh đang trống. Hãy chọn ảnh từ các bài viết hoặc Kho ảnh toàn cục!</div>';
+      return;
+    }
+
+    selectedGlobalKeys.forEach(key => {
+      const [postId, idxStr] = key.split('__');
+      const idx = Number(idxStr);
+      const post = allPosts.find(p => p.id === postId);
+      const img = post?.images?.[idx];
+      if (!img) return;
+
+      const card = document.createElement('div');
+      card.className = 'basket-item-card';
+      const imgSrc = img.thumbnailDataUrl || img.dataUrl || '../icons/icon48.png';
+      card.innerHTML = `
+        <div class="basket-item-thumb-box">
+          <img class="basket-item-thumb" src="${imgSrc}" alt="${escapeHtml(img.filename || 'photo.jpg')}">
+          <button type="button" class="basket-item-remove-btn" title="Bỏ ảnh này khỏi giỏ">✕</button>
+        </div>
+        <div class="basket-item-meta">
+          <div class="basket-item-filename" title="${escapeHtml(img.filename || 'photo.jpg')}">${escapeHtml(img.filename || 'photo.jpg')}</div>
+          <div class="basket-item-author" title="@${escapeHtml(post.author || 'Tác giả')}">@${escapeHtml(post.author || 'Tác giả')}</div>
+        </div>
+      `;
+
+      card.querySelector('.basket-item-remove-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        selectedGlobalKeys.delete(key);
+        syncImageSelectionUi();
+        updateImageSelectionToolbar();
+        syncGlobalBatchToolbar();
+        updateBasketBar();
+        renderSidebarList();
+        renderBasketDrawer();
+      });
+
+      basketDrawerGrid.appendChild(card);
+    });
+  }
+
+  function clearAllSelectedImages() {
+    selectedGlobalKeys.clear();
+    lastSelectedGlobalKey = null;
+    lastSelectedImageIndex = null;
+    syncImageSelectionUi();
+    updateImageSelectionToolbar();
+    syncGlobalBatchToolbar();
+    updateBasketBar();
+    renderSidebarList();
+    if (currentAppTab === 'photos') {
+      globalPhotoGrid.querySelectorAll('.global-photo-card').forEach(card => {
+        card.classList.remove('selected');
+        const cb = card.querySelector('.global-card-checkbox');
+        if (cb) cb.checked = false;
+      });
+    }
+    showToast('🗑️ Đã bỏ chọn toàn bộ ảnh trong giỏ');
+  }
+
+  // Hook up basket bar & drawer buttons
+  btnBasketCopyToFolder?.addEventListener('click', copySelectedImagesToNewFolder);
+  btnDrawerCopyFolder?.addEventListener('click', copySelectedImagesToNewFolder);
+  btnBasketZip?.addEventListener('click', exportSelectedPhotosZip);
+  btnDrawerZip?.addEventListener('click', exportSelectedPhotosZip);
+  btnBasketDrawer?.addEventListener('click', openBasketDrawer);
+  btnCloseBasketDrawer?.addEventListener('click', closeBasketDrawer);
+  basketDrawerBackdrop?.addEventListener('click', closeBasketDrawer);
+  btnBasketClear?.addEventListener('click', clearAllSelectedImages);
+  btnDrawerClear?.addEventListener('click', clearAllSelectedImages);
+
+  btnBasketSetFolderName?.addEventListener('click', () => {
+    const defaultName = customBasketFolderName || (selectedGlobalKeys.size ? `Douyin_Gom_${selectedGlobalKeys.size}anh` : 'Douyin_Gom_Anh');
+    const input = prompt('Nhập tên cho thư mục gom ảnh mới:', defaultName);
+    if (input === null) return;
+    const clean = sanitizeImageFilename(input.trim());
+    if (clean) {
+      customBasketFolderName = clean;
+      if (basketFolderCustomInput) basketFolderCustomInput.value = clean;
+      showToast(`📁 Đã đặt tên thư mục gom: "${clean}"`);
+    }
+  });
+
+  basketFolderCustomInput?.addEventListener('input', () => {
+    customBasketFolderName = sanitizeImageFilename(basketFolderCustomInput.value.trim());
   });
 
   // Batch Delete
@@ -2667,4 +3205,79 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderGlobalPhotoGrid();
     showToast(target ? `📍 Đã gán "${target}" cho các bài viết đã chọn` : 'Đã xóa thẻ tỉnh thành');
   }
+
+  // ===== POST FOLDER NAME MANAGEMENT & SYNC =====
+  function updateFolderBadge() {
+    if (!viewFolderBadge) return;
+    const currentName = activePost?.folderName || (typeof DouyinFiles !== 'undefined' && activePost ? DouyinFiles.getPostFolderName(activePost) : '');
+    viewFolderBadge.innerText = currentName ? `📁 ${currentName}` : '📁 Thư mục: (Mặc định)';
+    viewFolderBadge.title = `Tên thư mục lưu trên máy: ${currentName || 'Mặc định theo bài viết'}`;
+  }
+
+  async function editPostFolderName(postToEdit = activePost) {
+    if (!postToEdit) return;
+    const currentName = postToEdit.folderName || (typeof DouyinFiles !== 'undefined' ? DouyinFiles.getPostFolderName(postToEdit) : '');
+    const promptMsg = `Nhập tên mới cho thư mục lưu trữ bài viết này:\n(Tên này dùng khi lưu vào máy tính, xuất ZIP và tải ảnh)`;
+    const newName = prompt(promptMsg, currentName);
+    if (newName === null) return;
+    const cleanName = sanitizeImageFilename(newName.trim());
+    if (!cleanName) {
+      showToast('❌ Tên thư mục không được để trống hoặc chứa ký tự đặc biệt');
+      return;
+    }
+
+    postToEdit.folderName = cleanName;
+
+    // Load full post to ensure complete record is preserved in IndexedDB
+    let full = await DouyinDB.getPost(postToEdit.id);
+    if (full) {
+      full.folderName = cleanName;
+      await DouyinDB.savePost(full);
+    } else {
+      await DouyinDB.savePost(postToEdit);
+    }
+
+    // Update in allPosts summary array
+    const summary = allPosts.find(p => p.id === postToEdit.id);
+    if (summary) {
+      summary.folderName = cleanName;
+    }
+
+    if (activePost && activePost.id === postToEdit.id) {
+      activePost.folderName = cleanName;
+      updateFolderBadge();
+    }
+
+    // If disk folder was already saved to Douyin_Offline, rename folder on disk
+    let diskRenamed = false;
+    if (typeof DouyinFiles !== 'undefined') {
+      try {
+        const diskInfo = await DouyinFiles.getDirectoryInfo();
+        if (diskInfo && diskInfo.configured) {
+          diskRenamed = await DouyinFiles.renamePostFolder(full || postToEdit, cleanName, { requestPermission: false });
+        }
+      } catch (err) {
+        console.warn('Lỗi khi đổi tên thư mục trên đĩa:', err);
+      }
+    }
+
+    renderSidebarList();
+    if (diskRenamed) {
+      showToast(`✅ Đã đổi tên thư mục thành "${cleanName}" trên máy tính!`);
+    } else {
+      showToast(`✅ Đã cập nhật tên thư mục: "${cleanName}"`);
+    }
+  }
+
+  btnEditFolderName?.addEventListener('click', () => editPostFolderName(activePost));
+  btnRenamePostFolder?.addEventListener('click', () => editPostFolderName(activePost));
+
+  // Listen for background download completion so new posts appear automatically in Studio
+  chrome.runtime?.onMessage?.addListener((request) => {
+    if (request.type === 'BACKGROUND_DOWNLOAD_COMPLETE') {
+      const author = request.payload?.postRecord?.author || '';
+      showToast(`🎉 Bài viết của @${author} đã tải xong ở chế độ nền!`);
+      refreshPostsList();
+    }
+  });
 });

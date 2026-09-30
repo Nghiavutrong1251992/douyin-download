@@ -113,6 +113,10 @@
                     <span id="view-badge-status" class="badge-status status-pending">Chưa đăng FB</span>
                   </div>
                   <div class="author-meta-row">
+                    <span class="folder-badge-control">
+                      <span class="folder-badge" id="view-folder-badge">📁 Thư mục: --</span>
+                      <button id="btn-edit-folder-name" class="btn-inline-edit" title="Đổi tên thư mục lưu bài viết">✎ Đổi tên folder</button>
+                    </span>
                     <span class="province-badge-control">
                       <span class="province-badge" id="view-province-badge">📍 Chưa gắn tỉnh</span>
                       <button id="btn-edit-province" class="btn-inline-edit" title="Gắn thẻ tỉnh thành / khu vực">✎ Đổi tỉnh thành</button>
@@ -188,6 +192,7 @@
                 <div class="gallery-head-actions">
                   <input id="image-tag-search" class="tag-search-input" type="search" placeholder="🔎 Tìm ảnh theo tag...">
                   <button id="btn-tag-all-images" class="btn btn-secondary-outline" title="Gắn cùng một nhóm tag cho tất cả ảnh">🏷 Tag tất cả</button>
+                  <button id="btn-rename-post-folder" class="btn btn-secondary-outline" title="Đổi tên thư mục lưu bài viết này">✎ Đổi tên folder</button>
                   <button id="btn-save-to-folder" class="btn btn-secondary-outline">📁 Lưu thư mục</button>
                   <button id="btn-download-all-jpg" class="btn btn-emerald-sm">
                     <svg viewBox="0 0 24 24" class="btn-icon"><path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2v9.67z"/></svg>
@@ -203,6 +208,7 @@
                 <button id="btn-rename-selected-images" class="btn-compact btn-compact-primary" disabled>✎ Đổi tên</button>
                 <button id="btn-rotate-left-images" class="btn-compact btn-compact-primary" disabled>↶ Xoay trái</button>
                 <button id="btn-rotate-right-images" class="btn-compact btn-compact-primary" disabled>↷ Xoay phải</button>
+                <button id="btn-copy-selected-to-folder" class="btn-compact btn-compact-emerald" disabled title="Gom tất cả ảnh đã chọn copy ra một thư mục mới trên máy tính">📁 Copy ra thư mục mới</button>
                 <button id="btn-open-folder-location" class="btn-compact btn-compact-primary" disabled title="Mở vị trí ảnh đã chọn trong thư mục máy tính">📂 Mở vị trí file</button>
                 <button id="btn-optimize-selected-images" class="btn-compact btn-compact-primary" disabled>◫ Tạo ảnh xem nhẹ</button>
                 <button id="btn-delete-selected-images" class="btn-compact btn-compact-danger" disabled>🗑 Xóa ảnh chọn</button>
@@ -288,6 +294,7 @@
                 <button id="btn-global-batch-tag" class="btn-compact btn-compact-primary" disabled>🏷 Gắn tag</button>
                 <button id="btn-global-batch-rot-left" class="btn-compact btn-compact-primary" disabled>↶ Xoay trái</button>
                 <button id="btn-global-batch-rot-right" class="btn-compact btn-compact-primary" disabled>↷ Xoay phải</button>
+                <button id="btn-global-batch-copy-to-folder" class="btn-compact btn-compact-emerald" disabled title="Gom tất cả ảnh đã chọn từ nhiều bài viết khác nhau copy ra một thư mục mới trên máy tính">📁 Copy ra thư mục mới</button>
                 <button id="btn-global-batch-open-location" class="btn-compact btn-compact-primary" disabled title="Mở vị trí ảnh đã chọn trong thư mục máy tính">📂 Mở vị trí file</button>
                 <button id="btn-global-batch-zip" class="btn-compact btn-compact-emerald" disabled>📦 Tải ZIP</button>
                 <button id="btn-global-batch-delete" class="btn-compact btn-compact-danger" disabled>🗑 Xóa ảnh chọn</button>
@@ -337,12 +344,73 @@
     <button data-action="fav">⭐ Thêm/bỏ yêu thích</button>
     <button data-action="province">📍 Gắn tỉnh thành</button>
     <button data-action="tag">🏷 Gắn tag</button>
-    <button data-action="rename">✎ Đổi tên</button>
+    <button data-action="rename">✎ Đổi tên ảnh</button>
+    <button data-action="rename-folder">📁 Đổi tên thư mục bài viết</button>
     <button data-action="rotate-left">↶ Xoay trái</button>
     <button data-action="rotate-right">↷ Xoay phải</button>
+    <button data-action="copy-folder">📁 Copy ảnh chọn ra thư mục mới</button>
     <button data-action="open-location">📂 Mở vị trí file trong thư mục</button>
     <button data-action="copy">📋 Copy ảnh</button>
     <button data-action="delete" class="context-danger">🗑 Xóa ảnh chọn</button>
+  </div>
+
+  <!-- Floating Selection Basket Bar (Khay gom ảnh đã chọn đa thư mục/bài viết) -->
+  <div id="selection-basket-bar" class="selection-basket-bar hidden">
+    <div class="basket-info">
+      <div class="basket-icon-pulse">🧺</div>
+      <div class="basket-text-block">
+        <div class="basket-title">Khay gom ảnh đa thư mục</div>
+        <div id="basket-text" class="basket-sub">Đã chọn <strong>0</strong> ảnh từ <strong>0</strong> bài viết</div>
+      </div>
+    </div>
+    <div class="basket-actions">
+      <button id="btn-basket-copy-to-folder" class="btn-basket-primary" title="Copy tất cả ảnh đã chọn từ các thư mục khác nhau ra một thư mục mới">
+        📁 Copy ra thư mục mới (<span id="basket-btn-count">0</span>)
+      </button>
+      <button id="btn-basket-set-folder-name" class="btn-basket-secondary" title="Đặt tên cho thư mục gom ảnh mới">
+        ✎ Đổi tên folder gom
+      </button>
+      <button id="btn-basket-zip" class="btn-basket-secondary" title="Tải file nén ZIP gom tất cả ảnh đã chọn">
+        📦 Tải ZIP
+      </button>
+      <button id="btn-basket-drawer" class="btn-basket-secondary" title="Xem danh sách chi tiết các ảnh trong giỏ">
+        👁 Xem giỏ (<span id="basket-drawer-btn-count">0</span>)
+      </button>
+      <button id="btn-basket-clear" class="btn-basket-clear" title="Bỏ chọn tất cả ảnh đã gom">
+        ✕ Bỏ chọn
+      </button>
+    </div>
+  </div>
+
+  <!-- Modal / Drawer xem giỏ ảnh đã gom -->
+  <div id="basket-drawer-modal" class="basket-drawer-modal hidden">
+    <div class="basket-drawer-backdrop" id="basket-drawer-backdrop"></div>
+    <div class="basket-drawer-content">
+      <div class="basket-drawer-header">
+        <div class="basket-drawer-title-row">
+          <h3>🧺 Chi tiết ảnh đã chọn gom (<span id="drawer-total-count">0</span> ảnh)</h3>
+          <span class="basket-drawer-subtitle">Ảnh từ nhiều thư mục/bài viết khác nhau được tổng hợp tại đây</span>
+        </div>
+        <button id="btn-close-basket-drawer" class="btn-close-modal" title="Đóng">&times;</button>
+      </div>
+      <div id="basket-drawer-grid" class="basket-drawer-grid">
+        <!-- Rendered selected photos -->
+      </div>
+      <div class="basket-drawer-footer">
+        <div class="drawer-footer-stats" id="drawer-footer-stats">
+          0 ảnh từ 0 bài viết
+        </div>
+        <div class="drawer-folder-name-row">
+          <label for="basket-folder-custom-input">📁 Tên folder gom:</label>
+          <input id="basket-folder-custom-input" class="basket-folder-custom-input" type="text" placeholder="Nhập tên folder gom mới..." />
+        </div>
+        <div class="drawer-footer-actions">
+          <button id="btn-drawer-copy-folder" class="btn btn-emerald">📁 Copy toàn bộ ra thư mục này</button>
+          <button id="btn-drawer-zip" class="btn btn-secondary-outline">📦 Tải ZIP</button>
+          <button id="btn-drawer-clear" class="btn btn-danger-outline">✕ Bỏ chọn tất cả</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Toast Notification -->

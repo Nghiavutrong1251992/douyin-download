@@ -795,42 +795,89 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
     return postRecord;
   }
 
-  // ===== ACTION 1: SAVE & OPEN OFFLINE TAB DIRECTLY (NO ZIP / NO DOWNLOAD NEEDED) =====
+  // ===== ACTION 1: SAVE & OPEN OFFLINE TAB DIRECTLY (BACKGROUND PROCESSING - TAB SAFE) =====
   btnSaveAndView.addEventListener('click', async () => {
-    btnSaveAndView.disabled = true;
-    showStatus('Đang lưu và chuẩn bị mở trang xem offline...');
-
-    try {
-      const saved = await processAndSavePost();
-      hideStatus();
-      btnSaveAndView.disabled = false;
-
-      // OPEN FULL VIEWER TAB DIRECTLY IN CHROME!
-      chrome.tabs.create({
-        url: chrome.runtime.getURL(`viewer/viewer.html?id=${saved.id}`)
-      });
-    } catch (err) {
-      console.error(err);
-      hideStatus();
-      btnSaveAndView.disabled = false;
-      alert('Lỗi: ' + err.message);
+    if (!currentMediaData) {
+      alert('Chưa có dữ liệu bài viết.');
+      return;
     }
+    if (currentMediaData.type === 'note' && selectedImageUrls.length === 0) {
+      alert('Vui lòng chọn ít nhất 1 ảnh.');
+      return;
+    }
+
+    btnSaveAndView.disabled = true;
+    showStatus('🚀 Đang tải ảnh ở chế độ nền... Bạn có thể chuyển tab thoải mái mà không bị dừng!');
+
+    chrome.runtime.sendMessage({
+      type: 'START_BACKGROUND_SAVE_POST',
+      payload: {
+        mediaData: currentMediaData,
+        selectedUrls: selectedImageUrls,
+        desc: originalCaptionEl.value || currentMediaData.desc || '',
+        englishCaption: englishCaptionEl.value || currentMediaData.englishCaption || '',
+        openViewer: true
+      }
+    }, (res) => {
+      if (chrome.runtime.lastError) {
+        console.warn('Lỗi background download, chuyển sang lưu trực tiếp:', chrome.runtime.lastError);
+        processAndSavePost().then(saved => {
+          hideStatus();
+          btnSaveAndView.disabled = false;
+          chrome.tabs.create({ url: chrome.runtime.getURL(`viewer/viewer.html?id=${saved.id}`) });
+        }).catch(err => {
+          hideStatus();
+          btnSaveAndView.disabled = false;
+          alert('Lỗi: ' + err.message);
+        });
+      }
+    });
   });
 
   // ===== ACTION 2: BACKUP ZIP DOWNLOAD (OPTIONAL) =====
   btnSaveOfflinePackage.addEventListener('click', async () => {
+    if (!currentMediaData) {
+      alert('Chưa có dữ liệu bài viết.');
+      return;
+    }
     btnSaveOfflinePackage.disabled = true;
-    showStatus('Đang tạo gói ZIP để tải về máy...');
+    showStatus('Đang chuẩn bị gói ZIP tải về máy...');
 
     try {
-      const saved = await processAndSavePost();
-      showStatus('Đang nén file ZIP...');
+      let saved = null;
+      const existingId = currentMediaData.itemId || currentMediaData.id;
+      if (existingId) {
+        saved = await DouyinDB.getPost(existingId);
+      }
+      if (!saved || !saved.images || saved.images.length === 0) {
+        showStatus('Đang nạp ảnh ở chế độ nền...');
+        const res = await new Promise((resolve, reject) => {
+          chrome.runtime.sendMessage({
+            type: 'START_BACKGROUND_SAVE_POST',
+            payload: {
+              mediaData: currentMediaData,
+              selectedUrls: selectedImageUrls,
+              desc: originalCaptionEl.value || currentMediaData.desc || '',
+              englishCaption: englishCaptionEl.value || currentMediaData.englishCaption || '',
+              openViewer: false
+            }
+          }, (r) => {
+            if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+            else if (r && r.success) resolve(r.postRecord);
+            else reject(new Error(r?.error || 'Lỗi tải ảnh'));
+          });
+        });
+        saved = res;
+      }
 
+      showStatus('Đang nén file ZIP...');
       const zip = new JSZip();
       const imgFolder = zip.folder('images');
-      for (const item of saved.images) {
-        const base64Data = item.dataUrl.split(',')[1];
-        imgFolder.file(item.filename, base64Data, { base64: true });
+      for (const item of (saved.images || [])) {
+        if (item.dataUrl) {
+          const base64Data = item.dataUrl.split(',')[1];
+          imgFolder.file(item.filename, base64Data, { base64: true });
+        }
       }
 
       const txt = [
@@ -938,4 +985,26 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
               .replace(/"/g, '&quot;')
               .replace(/'/g, '&#039;');
   }
+
+  // Listen for background download progress & completion across tab switches
+  chrome.runtime.onMessage.addListener((request) => {
+    if (request.type === 'BACKGROUND_DOWNLOAD_PROGRESS') {
+      const info = request.payload;
+      showStatus(`⏳ Đang tải ảnh ${info.current}/${info.total} ở chế độ nền (chuyển tab vẫn tải)...`);
+    } else if (request.type === 'BACKGROUND_DOWNLOAD_COMPLETE') {
+      const post = request.payload?.postRecord;
+      showStatus(`✅ Đã tải xong ${post?.images?.length || 0} ảnh và lưu vào kho Offline!`);
+      btnSaveAndView.disabled = false;
+      loadLibrary();
+    }
+  });
+
+  // Restore current background download status if user switches back to popup
+  chrome.storage.local.get(['backgroundDownload'], (res) => {
+    const bg = res.backgroundDownload;
+    if (bg && bg.active) {
+      showStatus(`⏳ Đang tải ảnh ${bg.current}/${bg.total} ở chế độ nền... Bạn có thể chuyển tab thoải mái!`);
+      btnSaveAndView.disabled = true;
+    }
+  });
 });

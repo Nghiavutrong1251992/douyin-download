@@ -93,6 +93,18 @@
 
   // ===== Listen for requests from popup / background =====
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.type === 'BACKGROUND_DOWNLOAD_PROGRESS') {
+      const info = request.payload;
+      showToast(`⏳ Đang tải ảnh ${info.current}/${info.total} ở chế độ nền... Bạn chuyển tab thoải mái!`);
+      return;
+    }
+
+    if (request.type === 'BACKGROUND_DOWNLOAD_COMPLETE') {
+      const post = request.payload?.postRecord;
+      showToast(`🎉 Đã tải xong ${post?.images?.length || 0} ảnh vào kho Offline!`);
+      return;
+    }
+
     if (request.type === 'GET_CURRENT_PAGE_MEDIA') {
       // Request data from inject_main.js via postMessage
       window.postMessage({ type: 'REQ_EXTRACT_DOUYIN' }, '*');

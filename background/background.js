@@ -1,6 +1,12 @@
 // Background Service Worker (Manifest V3)
 // Core responsibility: Handle image downloading with correct headers,
-// DeepSeek translation, and cross-origin fetching
+// background post processing, DeepSeek translation, and cross-origin fetching
+
+try {
+  importScripts('../lib/db.js');
+} catch (e) {
+  console.warn('[Background] Cannot load db.js in worker:', e);
+}
 
 // Open the extension as a persistent browser side panel when its toolbar
 // icon is clicked. Chrome/Edge lets the user choose whether panels sit on
@@ -79,32 +85,64 @@ async function fetchImageAsBlob(imageUrl) {
   return blob;
 }
 
+// Convert Blob to Data URL safely in Worker without DOM FileReader dependency
+async function blobToDataUrlWorker(blob) {
+  const buffer = await blob.arrayBuffer();
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  const len = bytes.byteLength;
+  const chunkSize = 0x8000;
+  for (let i = 0; i < len; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, Math.min(i + chunkSize, len)));
+  }
+  const base64 = btoa(binary);
+  return `data:${blob.type || 'image/jpeg'};base64,${base64}`;
+}
+
+// Convert image blob to clean, metadata-stripped JPG using OffscreenCanvas (Manifest V3 native)
+async function convertBlobToCleanJpgWorker(blob, quality = 0.92, maxDimension = null) {
+  try {
+    const imageBitmap = await createImageBitmap(blob);
+    const sourceWidth = imageBitmap.width;
+    const sourceHeight = imageBitmap.height;
+    const scale = maxDimension ? Math.min(1, maxDimension / Math.max(sourceWidth, sourceHeight)) : 1;
+    const targetWidth = Math.max(1, Math.round(sourceWidth * scale));
+    const targetHeight = Math.max(1, Math.round(sourceHeight * scale));
+
+    const canvas = new OffscreenCanvas(targetWidth, targetHeight);
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, targetWidth, targetHeight);
+    ctx.drawImage(imageBitmap, 0, 0, targetWidth, targetHeight);
+    imageBitmap.close();
+
+    const cleanBlob = await canvas.convertToBlob({ type: 'image/jpeg', quality });
+    return cleanBlob;
+  } catch (err) {
+    console.warn('[Background] OffscreenCanvas conversion fallback:', err);
+    return blob;
+  }
+}
+
 async function fetchImageAsBase64(imageUrl) {
   const blob = await fetchImageAsBlob(imageUrl);
-
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const base64 = reader.result.split(',')[1];
-      resolve({
-        base64: base64,
-        size: blob.size,
-        type: blob.type
-      });
-    };
-    reader.onerror = () => reject(new Error('Lỗi đọc file blob'));
-    reader.readAsDataURL(blob);
-  });
+  const dataUrl = await blobToDataUrlWorker(blob);
+  const base64 = dataUrl.split(',')[1];
+  return {
+    base64: base64,
+    size: blob.size,
+    type: blob.type
+  };
 }
 
 // ============ DOWNLOAD SINGLE IMAGE VIA chrome.downloads ============
 async function downloadImageFile(imageUrl, filename) {
   const blob = await fetchImageAsBlob(imageUrl);
-  const blobUrl = URL.createObjectURL(blob);
+  const dataUrl = await blobToDataUrlWorker(blob);
 
   return new Promise((resolve, reject) => {
     chrome.downloads.download({
-      url: blobUrl,
+      url: dataUrl,
       filename: filename,
       saveAs: false
     }, (downloadId) => {
@@ -113,10 +151,145 @@ async function downloadImageFile(imageUrl, filename) {
       } else {
         resolve(downloadId);
       }
-      // Clean up blob URL after a delay
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 30000);
     });
   });
+}
+
+// ============ PERSISTENT BACKGROUND POST DOWNLOAD & SAVE ENGINE ============
+// Runs in Background Service Worker: Switching tabs will NEVER stop or interrupt download!
+async function backgroundProcessAndSavePost(payload) {
+  const mediaData = payload.mediaData || {};
+  const selectedUrls = payload.selectedUrls || mediaData.images || [];
+  if (!selectedUrls.length) {
+    throw new Error('Không có ảnh nào để tải.');
+  }
+
+  const postId = payload.postId || mediaData.itemId || String(Date.now());
+  const authorName = mediaData.author || 'Tác giả Douyin';
+  const total = selectedUrls.length;
+
+  let backgroundState = {
+    active: true,
+    postId,
+    author: authorName,
+    total,
+    current: 0,
+    statusText: `Bắt đầu tải ${total} ảnh từ @${authorName}...`,
+    startedAt: Date.now()
+  };
+
+  await chrome.storage.local.set({ backgroundDownload: backgroundState });
+  if (chrome.action?.setBadgeText) {
+    chrome.action.setBadgeText({ text: '⏳' });
+    chrome.action.setBadgeBackgroundColor({ color: '#10b981' });
+  }
+
+  const cleanImages = [];
+
+  for (let i = 0; i < selectedUrls.length; i++) {
+    const url = selectedUrls[i];
+    const statusText = `Đang tải ảnh ${i + 1}/${total} ở chế độ nền (chuyển tab vẫn tải)...`;
+    backgroundState.current = i + 1;
+    backgroundState.statusText = statusText;
+
+    await chrome.storage.local.set({ backgroundDownload: backgroundState });
+    if (chrome.action?.setBadgeText) {
+      chrome.action.setBadgeText({ text: `${i + 1}/${total}` });
+    }
+    chrome.runtime.sendMessage({
+      type: 'BACKGROUND_DOWNLOAD_PROGRESS',
+      payload: { ...backgroundState }
+    }).catch(() => {});
+
+    try {
+      const rawBlob = await fetchImageAsBlob(url);
+      const cleanJpgBlob = await convertBlobToCleanJpgWorker(rawBlob, 0.92);
+      const cleanDataUrl = await blobToDataUrlWorker(cleanJpgBlob);
+      const thumbnailBlob = await convertBlobToCleanJpgWorker(cleanJpgBlob, 0.68, 480);
+      const thumbnailDataUrl = await blobToDataUrlWorker(thumbnailBlob);
+
+      cleanImages.push({
+        filename: `photo_${String(i + 1).padStart(2, '0')}.jpg`,
+        dataUrl: cleanDataUrl,
+        thumbnailDataUrl: thumbnailDataUrl,
+        tags: []
+      });
+    } catch (imgErr) {
+      console.warn(`[Background] Lỗi tải ảnh ${i + 1}:`, imgErr);
+    }
+  }
+
+  let avatarDataUrl = '';
+  if (mediaData.avatar) {
+    try {
+      const rawAvatar = await fetchImageAsBlob(mediaData.avatar);
+      const cleanAvatar = await convertBlobToCleanJpgWorker(rawAvatar, 0.8, 512);
+      avatarDataUrl = await blobToDataUrlWorker(cleanAvatar);
+    } catch (avErr) {
+      console.warn('[Background] Lỗi tải avatar:', avErr);
+    }
+  }
+
+  const postRecord = {
+    id: postId,
+    author: authorName,
+    authorId: mediaData.authorId || '',
+    avatar: avatarDataUrl || mediaData.avatar || '',
+    createTime: mediaData.createTime || 'Không xác định',
+    createTimestamp: mediaData.createTimestamp || 0,
+    desc: payload.desc || mediaData.desc || '',
+    notes: payload.notes || '',
+    englishCaption: payload.englishCaption || mediaData.englishCaption || '',
+    sourceUrl: mediaData.url || '',
+    images: cleanImages,
+    thumbUrl: cleanImages.length > 0 ? cleanImages[0].thumbnailDataUrl : '',
+    status: 'pending',
+    imageProcessed: false,
+    savedAt: Date.now()
+  };
+
+  if (typeof DouyinDB !== 'undefined') {
+    await DouyinDB.savePost(postRecord);
+  }
+
+  backgroundState = {
+    active: false,
+    complete: true,
+    savedPostId: postRecord.id,
+    author: authorName,
+    total,
+    current: cleanImages.length,
+    statusText: `✅ Đã tải xong ${cleanImages.length}/${total} ảnh!`,
+    finishedAt: Date.now()
+  };
+
+  await chrome.storage.local.set({ backgroundDownload: backgroundState });
+  if (chrome.action?.setBadgeText) {
+    chrome.action.setBadgeText({ text: '✓' });
+    setTimeout(() => chrome.action.setBadgeText({ text: '' }), 5000);
+  }
+
+  chrome.runtime.sendMessage({
+    type: 'BACKGROUND_DOWNLOAD_COMPLETE',
+    payload: { postRecord }
+  }).catch(() => {});
+
+  if (chrome.notifications?.create) {
+    chrome.notifications.create({
+      type: 'basic',
+      iconUrl: 'icons/icon128.png',
+      title: 'Tải ảnh Douyin hoàn tất!',
+      message: `Đã tải xong ${cleanImages.length} ảnh của @${authorName}. Dữ liệu đã sẵn sàng trong Offline Studio!`
+    });
+  }
+
+  if (payload.openViewer) {
+    chrome.tabs.create({
+      url: chrome.runtime.getURL(`viewer/viewer.html?id=${postRecord.id}`)
+    });
+  }
+
+  return postRecord;
 }
 
 // ============ DEEPSEEK API TRANSLATION ============
@@ -207,6 +380,25 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         type: blob.type
       }))
       .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  // Start background post downloading & saving (runs in Service Worker even when tabs switch!)
+  if (request.type === 'START_BACKGROUND_SAVE_POST') {
+    backgroundProcessAndSavePost(request.payload || {})
+      .then(postRecord => sendResponse({ success: true, postRecord }))
+      .catch(err => {
+        console.error('[Background] Download error:', err);
+        sendResponse({ success: false, error: err.message });
+      });
+    return true;
+  }
+
+  // Check background download status
+  if (request.type === 'GET_BACKGROUND_DOWNLOAD_STATUS') {
+    chrome.storage.local.get(['backgroundDownload'], (res) => {
+      sendResponse({ success: true, status: res.backgroundDownload || null });
+    });
     return true;
   }
 });
