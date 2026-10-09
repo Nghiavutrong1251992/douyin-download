@@ -1,6 +1,6 @@
 // Content Script injected into vk.com and vk.ru
-// Responsible for: injecting MAIN world VK extractor, creating floating button,
-// extracting ALL HD images & captions from VK photo viewer and wall posts
+// Responsible for: strictly isolated extraction of individual VK posts
+// Prevents merging photos across multiple posts
 (function () {
   'use strict';
 
@@ -60,7 +60,7 @@
     btn.addEventListener('click', async () => {
       const originalHTML = btn.innerHTML;
       btn.style.opacity = '0.7';
-      btn.innerHTML = '<span>⏳ Đang quét tất cả ảnh VK...</span>';
+      btn.innerHTML = '<span>⏳ Đang quét ảnh bài này...</span>';
 
       chrome.runtime.sendMessage({ type: 'OPEN_SIDE_PANEL' }).catch(() => {});
 
@@ -71,7 +71,7 @@
             currentExtractedData: data,
             lastExtractedAt: Date.now()
           }, () => {
-            showToast(`✅ Đã trích xuất ${data.images.length} ảnh HD từ bài đăng VK! Dữ liệu đã hiện trong sidebar.`);
+            showToast(`✅ Đã trích xuất ${data.images.length} ảnh từ bài viết này! Dữ liệu đã hiện trong sidebar.`);
           });
         } else {
           showToast(data?.error || '❌ Không tìm thấy ảnh. Hãy mở ảnh hoặc bài viết trên VK.');
@@ -82,7 +82,7 @@
         setTimeout(() => {
           btn.style.opacity = '1';
           btn.innerHTML = originalHTML;
-        }, 1500);
+        }, 1200);
       }
     });
 
@@ -130,7 +130,7 @@
       const timer = setTimeout(() => {
         window.removeEventListener('message', handler);
         resolve(null);
-      }, 1000);
+      }, 800);
 
       window.postMessage({ type: 'REQ_EXTRACT_VK' }, '*');
     });
@@ -140,18 +140,18 @@
   function getBestVkPhotoUrl(photoObj) {
     if (!photoObj || typeof photoObj !== 'object') return '';
 
-    // Original base photo
+    // 1. Original base photo
     if (photoObj.orig_photo && photoObj.orig_photo.url) {
       return photoObj.orig_photo.url;
     }
 
-    // Direct attributes
+    // 2. Direct high-res attributes
     if (photoObj.w_src) return photoObj.w_src;
     if (photoObj.z_src) return photoObj.z_src;
     if (photoObj.y_src) return photoObj.y_src;
     if (photoObj.x_src) return photoObj.x_src;
 
-    // sizes array: prioritize base, w, z, y, x
+    // 3. sizes array: prioritize base, w (2560), z (1280), y (807), x (604)
     if (Array.isArray(photoObj.sizes) && photoObj.sizes.length > 0) {
       const priority = ['base', 'w', 'z', 'y', 'x', 'm', 's'];
       for (const p of priority) {
@@ -162,7 +162,6 @@
         }
       }
 
-      // Maximum pixel area
       let maxArea = 0;
       let bestUrl = '';
       for (const s of photoObj.sizes) {
@@ -185,13 +184,27 @@
     return photoObj.url || photoObj.src || '';
   }
 
-  // ===== 6. Helper: parse data-exec JSON (VK PostContentContainer) =====
-  function extractFromDataExecString(dataExecStr) {
+  // ===== 6. Helper: parse data-exec JSON strictly for an expected post ID =====
+  function extractFromDataExecString(dataExecStr, expectedPostRaw = null) {
     try {
       const jsonStr = dataExecStr.replace(/&quot;/g, '"').replace(/&amp;/g, '&');
       const data = JSON.parse(jsonStr);
       const init = data['PostContentContainer/init'] || Object.values(data)[0] || {};
       const item = init.item || init.post || {};
+
+      // If an expected post ID is provided, verify it strictly matches!
+      if (expectedPostRaw) {
+        const cleanExpected = String(expectedPostRaw).replace(/^wall/, '');
+        const actualPostId = String(item.id || item.post_id || '');
+        const actualRawId = `${item.owner_id}_${item.id}`;
+        const isMatch = actualPostId === cleanExpected ||
+                        actualRawId === cleanExpected ||
+                        cleanExpected.endsWith('_' + actualPostId);
+        if (!isMatch) {
+          return null; // Reject: belongs to a different post!
+        }
+      }
+
       const attachments = item.attachments || [];
       const photos = [];
 
@@ -218,6 +231,7 @@
 
       return {
         success: photos.length > 0,
+        postId: item.id ? `${item.owner_id || ''}_${item.id}` : '',
         photos,
         caption,
         author,
@@ -234,7 +248,6 @@
     const urls = [];
     if (!el) return urls;
 
-    // Check onclick attribute (VK passes temp object with high-res sizes in showPhoto)
     const onclickStr = el.getAttribute('onclick') || '';
     if (onclickStr) {
       const srcMatches = onclickStr.matchAll(/(?:w_src|z_src|y_src|x_src)\s*:\s*["']([^"']+)["']/g);
@@ -247,24 +260,21 @@
         if (m[1] && m[1].startsWith('http')) urls.push(m[1].replace(/\\/g, ''));
       }
 
-      const directMatches = onclickStr.matchAll(/https?:\/\/[a-zA-Z0-9.\-_]*userapi\.com\/[^\s"',\)\}\]]+/g);
+      const directMatches = onclickStr.matchAll(/https?:\/\/[a-zA-Z0-9.\-_]*(?:userapi\.com|vkuserphoto\.ru)\/[^\s"',\)\}\]]+/g);
       for (const m of directMatches) {
         if (m[0]) urls.push(m[0].replace(/\\/g, ''));
       }
     }
 
-    // Check style background-image
     const bg = el.style.backgroundImage || (window.getComputedStyle(el).backgroundImage);
     if (bg && bg !== 'none') {
       const bgMatch = bg.match(/url\(['"]?(https?:\/\/[^'"]+)['"]?\)/);
       if (bgMatch && bgMatch[1]) urls.push(bgMatch[1]);
     }
 
-    // Check data attributes
     const dataSrc = el.getAttribute('data-src') || el.getAttribute('data-image') || el.getAttribute('data-cover');
     if (dataSrc && dataSrc.startsWith('http')) urls.push(dataSrc);
 
-    // Check child <img>
     const imgChild = el.querySelector('img');
     if (imgChild) {
       const src = imgChild.currentSrc || imgChild.src || imgChild.getAttribute('data-src');
@@ -289,213 +299,244 @@
     return clean;
   }
 
-  // ===== 8. Core VK Extractor =====
-  async function extractVkData() {
-    let allImages = [];
-    let caption = '';
-    let authorName = '';
-    let avatarUrl = '';
-    let createTime = '';
-    let itemId = '';
-    let postType = 'note';
-
-    // Parse URL metadata
-    const currentUrl = window.location.href;
-    const photoMatch = currentUrl.match(/z=photo([-\d]+)_(\d+)/i) || currentUrl.match(/\/photo([-\d]+)_(\d+)/i);
-    const wallMatch = currentUrl.match(/wall([-\d]+)_(\d+)/i);
-
-    if (photoMatch) {
-      itemId = `photo${photoMatch[1]}_${photoMatch[2]}`;
-    }
-    if (wallMatch) {
-      itemId = `wall${wallMatch[1]}_${wallMatch[2]}`;
-    }
-
-    // ========================================================
-    // STRATEGY 1: IF URL / PAGE CONTAINS A WALL POST (e.g. wall74543688_55815)
-    // ========================================================
-    if (wallMatch) {
-      const targetWallRaw = `${wallMatch[1]}_${wallMatch[2]}`;
-
-      // A. Check if the post's data-exec container is already in the current DOM
-      const execContainers = Array.from(document.querySelectorAll('[data-exec]'));
-      for (const el of execContainers) {
-        const rawAttr = el.getAttribute('data-exec') || '';
-        if (rawAttr.includes(targetWallRaw) || rawAttr.includes('PostContentContainer')) {
-          const parsed = extractFromDataExecString(rawAttr);
-          if (parsed && parsed.photos.length > 0) {
-            allImages.push(...parsed.photos);
-            if (parsed.caption) caption = parsed.caption;
-            if (parsed.author) authorName = parsed.author;
-            if (parsed.avatar) avatarUrl = parsed.avatar;
-            if (parsed.date) createTime = parsed.date;
-            break;
-          }
-        }
-      }
-
-      // B. If not in current DOM (e.g. user is in search or opened modal), fetch the wall post directly!
-      if (allImages.length === 0) {
-        try {
-          const wallResp = await fetch(`/wall${targetWallRaw}`, {
-            headers: { 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
-            credentials: 'same-origin'
-          });
-
-          if (wallResp.ok) {
-            const html = await wallResp.text();
-            const dataExecMatches = html.matchAll(/data-exec="([^"]+)"/g);
-            for (const m of dataExecMatches) {
-              if (m[1].includes(targetWallRaw) || m[1].includes('PostContentContainer')) {
-                const parsed = extractFromDataExecString(m[1]);
-                if (parsed && parsed.photos.length > 0) {
-                  allImages.push(...parsed.photos);
-                  if (parsed.caption && !caption) caption = parsed.caption;
-                  if (parsed.author && !authorName) authorName = parsed.author;
-                  if (parsed.avatar && !avatarUrl) avatarUrl = parsed.avatar;
-                  if (parsed.date && !createTime) createTime = parsed.date;
-                  break;
-                }
-              }
-            }
-          }
-        } catch (fetchErr) {
-          console.warn('[Douyin→FB / VK] Fetch wall post error:', fetchErr);
-        }
-      }
-    }
-
-    // ========================================================
-    // STRATEGY 2: MAIN WORLD EXTRACTION (cur.pvData deep search)
-    // ========================================================
-    const mainWorldData = await requestMainWorldData();
-    if (mainWorldData && Array.isArray(mainWorldData.images) && mainWorldData.images.length > 0) {
-      allImages.push(...mainWorldData.images);
-      if (!caption && mainWorldData.desc) caption = mainWorldData.desc;
-      if (!authorName && mainWorldData.author) authorName = mainWorldData.author;
-      if (!createTime && mainWorldData.date) createTime = mainWorldData.date;
-      if (!itemId && mainWorldData.photoId) itemId = mainWorldData.photoId;
-    }
-
-    // ========================================================
-    // STRATEGY 3: PHOTO VIEWER MODAL IN DOM (ACTIVE PHOTO)
-    // ========================================================
-    const pvBox = document.getElementById('pv_box') || document.querySelector('.pv_cur_photo, #layer, #pv_photo');
-    if (pvBox) {
-      const originalLink = document.querySelector(
-        'a.pv_actions_more_href[href*="userapi.com"], #pv_more_acts a[href*="userapi.com"], a[href*="as=1"], a[href*="open=1"], #pv_open_original'
-      );
-      if (originalLink && originalLink.href) {
-        allImages.unshift(originalLink.href);
-      }
-
-      const pvImg = document.querySelector('#pv_photo img, .pv_cur_img, .pv_photo_wrap img, #pv_box img');
-      if (pvImg) {
-        const src = pvImg.currentSrc || pvImg.src || pvImg.getAttribute('data-src');
-        if (src) allImages.push(src);
-      }
-
-      if (!caption) {
-        const descEl = document.querySelector('.pv_desc, #pv_desc, .pv_post_text, #pv_post_text');
-        if (descEl) caption = descEl.innerText.trim();
-      }
-      if (!authorName) {
-        const authorEl = document.querySelector('.pv_author_name, #pv_author_name, .pv_owner, #pv_owner a');
-        if (authorEl) authorName = authorEl.innerText.trim();
-      }
-      if (!avatarUrl) {
-        const avEl = document.querySelector('.pv_author_thumb img, #pv_author_thumb img, .pv_author_img');
-        if (avEl) avatarUrl = avEl.src || '';
-      }
-      if (!createTime) {
-        const dateEl = document.querySelector('.pv_date, #pv_date');
-        if (dateEl) createTime = dateEl.innerText.trim();
-      }
-    }
-
-    // ========================================================
-    // STRATEGY 4: DOM POST SCAN (THUMBNAILS & ONCLICK SHOWPHOTO)
-    // ========================================================
-    const postContainers = Array.from(document.querySelectorAll('.post, .wall_item, div[id^="post"]'));
-    let targetPost = null;
-    if (wallMatch) {
-      targetPost = document.getElementById(`post${wallMatch[1]}_${wallMatch[2]}`) ||
-                   document.querySelector(`[data-post-id="${wallMatch[1]}_${wallMatch[2]}"]`);
-    }
-    if (!targetPost && postContainers.length > 0) {
-      targetPost = postContainers.find(p => {
-        const rect = p.getBoundingClientRect();
-        return rect.top >= -100 && rect.bottom > 100;
-      }) || postContainers[0];
-    }
-
-    if (targetPost) {
-      if (!caption) {
-        const textEl = targetPost.querySelector('.wall_post_text, .wall_text, .PostText');
-        if (textEl) caption = textEl.innerText.trim();
-      }
-      if (!authorName) {
-        const authEl = targetPost.querySelector('.post_author .author, .PostHeaderTitle, .author');
-        if (authEl) authorName = authEl.innerText.trim();
-      }
-      if (!avatarUrl) {
-        const avEl = targetPost.querySelector('.post_image img, .PostHeaderTitle__avatar img, .post_author img');
-        if (avEl) avatarUrl = avEl.src || '';
-      }
-      if (!createTime) {
-        const timeEl = targetPost.querySelector('.post_date, .PostHeaderSubtitle, .rel_date');
-        if (timeEl) createTime = timeEl.innerText.trim();
-      }
-
-      const thumbs = targetPost.querySelectorAll(
-        '.page_post_sized_thumbs a, a.page_post_thumb_wrap, div.image_cover, [data-photo-id], .page_post_sized_thumbs img'
-      );
-      for (const thumb of thumbs) {
-        const urls = extractUrlsFromVkElement(thumb);
-        allImages.push(...urls);
-      }
-    }
-
-    // ========================================================
-    // CLEAN, VALIDATE AND DEDUPLICATE ALL IMAGES
-    // ========================================================
+  // Helper to build standardized single-post result
+  function buildResult({ itemId, images, caption, author, avatar, createTime }) {
     const cleanedImages = [];
     const seen = new Set();
-
-    for (const rawUrl of allImages) {
-      const clean = cleanVkImageUrl(rawUrl);
+    for (const u of (images || [])) {
+      const clean = cleanVkImageUrl(u);
       if (clean && !seen.has(clean)) {
         seen.add(clean);
         cleanedImages.push(clean);
       }
     }
 
-    // Extract hashtags from caption
     const hashtagMatches = (caption || '').match(/#[a-zA-Z0-9_\u0400-\u04FF]+/g) || [];
     const hashtags = Array.from(new Set(hashtagMatches));
 
-    if (cleanedImages.length === 0) {
-      return {
-        success: false,
-        platform: 'vk',
-        error: 'Không tìm thấy ảnh trên trang VK hiện tại. Hãy mở ảnh hoặc bài viết.'
-      };
+    return {
+      success: cleanedImages.length > 0,
+      platform: 'vk',
+      type: 'note',
+      title: (caption || 'Bài viết VKontakte').slice(0, 100),
+      desc: caption || '',
+      images: cleanedImages,
+      videoUrl: '',
+      author: author || 'Tác giả VKontakte',
+      avatar: avatar || '',
+      itemId: itemId || ('vk_' + Date.now()),
+      url: window.location.href,
+      createTime: createTime || 'Gần đây',
+      hashtags: hashtags
+    };
+  }
+
+  // ===== 8. Core VK Extractor (Strictly isolated by post) =====
+  async function extractVkData() {
+    const currentUrl = window.location.href;
+    const photoMatch = currentUrl.match(/z=photo([-\d]+)_(\d+)/i) || currentUrl.match(/\/photo([-\d]+)_(\d+)/i);
+    const wallMatch = currentUrl.match(/wall([-\d]+)_(\d+)/i);
+
+    // ========================================================
+    // SCENARIO 1: URL SPECIFIES A WALL POST (e.g. wall74543688_55815)
+    // ONLY extract this post's photos and return immediately!
+    // ========================================================
+    if (wallMatch) {
+      const targetWallRaw = `${wallMatch[1]}_${wallMatch[2]}`;
+      const targetPostIdOnly = wallMatch[2];
+
+      // A. Check in current DOM for data-exec matching this exact post
+      const execContainers = Array.from(document.querySelectorAll('[data-exec]'));
+      for (const el of execContainers) {
+        const rawAttr = el.getAttribute('data-exec') || '';
+        if (rawAttr.includes(targetWallRaw) || rawAttr.includes(`"id":${targetPostIdOnly}`) || rawAttr.includes(`"postId":"${targetWallRaw}"`)) {
+          const parsed = extractFromDataExecString(rawAttr, targetWallRaw);
+          if (parsed && parsed.photos.length > 0) {
+            return buildResult({
+              itemId: `wall${targetWallRaw}`,
+              images: parsed.photos,
+              caption: parsed.caption,
+              author: parsed.author,
+              avatar: parsed.avatar,
+              createTime: parsed.date
+            });
+          }
+        }
+      }
+
+      // B. If not in current DOM, fetch this wall post directly
+      try {
+        const wallResp = await fetch(`/wall${targetWallRaw}`, {
+          headers: { 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
+          credentials: 'same-origin'
+        });
+
+        if (wallResp.ok) {
+          const html = await wallResp.text();
+          const dataExecMatches = html.matchAll(/data-exec="([^"]+)"/g);
+          for (const m of dataExecMatches) {
+            if (m[1].includes(targetWallRaw) || m[1].includes(`"id":${targetPostIdOnly}`)) {
+              const parsed = extractFromDataExecString(m[1], targetWallRaw);
+              if (parsed && parsed.photos.length > 0) {
+                return buildResult({
+                  itemId: `wall${targetWallRaw}`,
+                  images: parsed.photos,
+                  caption: parsed.caption,
+                  author: parsed.author,
+                  avatar: parsed.avatar,
+                  createTime: parsed.date
+                });
+              }
+            }
+          }
+        }
+      } catch (fetchErr) {
+        console.warn('[Douyin→FB / VK] Fetch wall post error:', fetchErr);
+      }
+    }
+
+    // ========================================================
+    // SCENARIO 2: PHOTO VIEWER MODAL IS OPEN IN DOM
+    // Check if it belongs to a wall post, or extract only active photo
+    // ========================================================
+    const pvBox = document.getElementById('pv_box') || document.querySelector('.pv_cur_photo, #layer, #pv_photo');
+    if (pvBox && (pvBox.offsetWidth > 0 || pvBox.offsetHeight > 0 || document.getElementById('pv_photo'))) {
+      // Check if photo modal points to an attached wall post
+      const wallLink = pvBox.querySelector('a[href*="/wall"]');
+      if (wallLink) {
+        const m = wallLink.getAttribute('href').match(/wall([-\d]+)_(\d+)/);
+        if (m) {
+          const targetWallRaw = `${m[1]}_${m[2]}`;
+          try {
+            const wallResp = await fetch(`/wall${targetWallRaw}`, {
+              headers: { 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
+              credentials: 'same-origin'
+            });
+            if (wallResp.ok) {
+              const html = await wallResp.text();
+              const dataExecMatches = html.matchAll(/data-exec="([^"]+)"/g);
+              for (const em of dataExecMatches) {
+                if (em[1].includes(targetWallRaw) || em[1].includes(`"id":${m[2]}`)) {
+                  const parsed = extractFromDataExecString(em[1], targetWallRaw);
+                  if (parsed && parsed.photos.length > 0) {
+                    return buildResult({
+                      itemId: `wall${targetWallRaw}`,
+                      images: parsed.photos,
+                      caption: parsed.caption,
+                      author: parsed.author,
+                      avatar: parsed.avatar,
+                      createTime: parsed.date
+                    });
+                  }
+                }
+              }
+            }
+          } catch(e) {}
+        }
+      }
+
+      // Standalone photo modal (extract ONLY this single photo, never leak other posts)
+      let singlePhotoUrl = '';
+      const originalLink = document.querySelector(
+        'a.pv_actions_more_href[href*="userapi.com"], a.pv_actions_more_href[href*="vkuserphoto.ru"], #pv_more_acts a[href*="userapi.com"], #pv_more_acts a[href*="vkuserphoto.ru"], a[href*="as=1"], a[href*="open=1"], #pv_open_original'
+      );
+      if (originalLink && originalLink.href) {
+        singlePhotoUrl = originalLink.href;
+      }
+
+      if (!singlePhotoUrl) {
+        const pvImg = document.querySelector('#pv_photo img, .pv_cur_img, .pv_photo_wrap img, #pv_box img');
+        if (pvImg) singlePhotoUrl = pvImg.currentSrc || pvImg.src || pvImg.getAttribute('data-src') || '';
+      }
+
+      const mainData = await requestMainWorldData();
+      if (!singlePhotoUrl && mainData && mainData.curPhotoUrl) {
+        singlePhotoUrl = mainData.curPhotoUrl;
+      }
+
+      const descEl = document.querySelector('.pv_desc, #pv_desc, .pv_post_text, #pv_post_text');
+      const authorEl = document.querySelector('.pv_author_name, #pv_author_name, .pv_owner, #pv_owner a');
+      const avatarEl = document.querySelector('.pv_author_thumb img, #pv_author_thumb img');
+      const dateEl = document.querySelector('.pv_date, #pv_date');
+
+      if (singlePhotoUrl) {
+        const cleanUrl = cleanVkImageUrl(singlePhotoUrl);
+        if (cleanUrl) {
+          return buildResult({
+            itemId: (photoMatch ? `photo${photoMatch[1]}_${photoMatch[2]}` : '') || ('vk_' + Date.now()),
+            images: [cleanUrl],
+            caption: descEl ? descEl.innerText.trim() : (mainData?.desc || ''),
+            author: authorEl ? authorEl.innerText.trim() : '',
+            avatar: avatarEl ? avatarEl.src : '',
+            createTime: dateEl ? dateEl.innerText.trim() : ''
+          });
+        }
+      }
+    }
+
+    // ========================================================
+    // SCENARIO 3: BROWSING FEED / WALL (No modal open)
+    // Find the single post in viewport and extract ONLY its photos
+    // ========================================================
+    const postContainers = Array.from(document.querySelectorAll('.post, .wall_item, div[id^="post"]'));
+    if (postContainers.length > 0) {
+      const targetPost = postContainers.find(p => {
+        const rect = p.getBoundingClientRect();
+        return rect.top >= -50 && rect.bottom > 150;
+      }) || postContainers[0];
+
+      if (targetPost) {
+        const postExec = targetPost.querySelector('[data-exec]') || targetPost.getAttribute('data-exec');
+        if (postExec) {
+          const rawAttr = typeof postExec === 'string' ? postExec : postExec.getAttribute('data-exec');
+          const parsed = extractFromDataExecString(rawAttr);
+          if (parsed && parsed.photos.length > 0) {
+            return buildResult({
+              itemId: parsed.postId ? `wall${parsed.postId}` : (targetPost.id || 'vk_' + Date.now()),
+              images: parsed.photos,
+              caption: parsed.caption,
+              author: parsed.author,
+              avatar: parsed.avatar,
+              createTime: parsed.date
+            });
+          }
+        }
+
+        // Thumb fallback for this single targetPost ONLY
+        const thumbs = targetPost.querySelectorAll(
+          '.page_post_sized_thumbs a, a.page_post_thumb_wrap, div.image_cover, [data-photo-id], .page_post_sized_thumbs img'
+        );
+        const postPhotos = [];
+        for (const thumb of thumbs) {
+          const urls = extractUrlsFromVkElement(thumb);
+          for (const u of urls) {
+            const clean = cleanVkImageUrl(u);
+            if (clean && !postPhotos.includes(clean)) postPhotos.push(clean);
+          }
+        }
+
+        if (postPhotos.length > 0) {
+          const textEl = targetPost.querySelector('.wall_post_text, .wall_text, .PostText');
+          const authEl = targetPost.querySelector('.post_author .author, .PostHeaderTitle, .author');
+          const avEl = targetPost.querySelector('.post_image img, .PostHeaderTitle__avatar img, .post_author img');
+          const timeEl = targetPost.querySelector('.post_date, .PostHeaderSubtitle, .rel_date');
+
+          return buildResult({
+            itemId: targetPost.id ? `wall${targetPost.id.replace('post', '')}` : ('vk_' + Date.now()),
+            images: postPhotos,
+            caption: textEl ? textEl.innerText.trim() : '',
+            author: authEl ? authEl.innerText.trim() : '',
+            avatar: avEl ? avEl.src : '',
+            createTime: timeEl ? timeEl.innerText.trim() : ''
+          });
+        }
+      }
     }
 
     return {
-      success: true,
+      success: false,
       platform: 'vk',
-      type: postType,
-      title: (caption || 'Bài viết VKontakte').slice(0, 100),
-      desc: caption,
-      images: cleanedImages,
-      videoUrl: '',
-      author: authorName || 'Tác giả VKontakte',
-      avatar: avatarUrl || '',
-      itemId: itemId || ('vk_' + Date.now()),
-      url: currentUrl,
-      createTime: createTime || 'Gần đây',
-      hashtags: hashtags
+      error: 'Không tìm thấy ảnh trên trang VK hiện tại. Hãy mở ảnh hoặc bài viết.'
     };
   }
 

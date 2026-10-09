@@ -1,11 +1,11 @@
-// Injected into MAIN world on vk.com / vk.ru to access window.cur and VK page context
+// Injected into MAIN world on vk.com / vk.ru to access window.cur
 (function () {
   'use strict';
 
   function getBestPhotoUrl(photoObj) {
     if (!photoObj || typeof photoObj !== 'object') return '';
 
-    // Original photo
+    // Original base photo
     if (photoObj.orig_photo && photoObj.orig_photo.url) {
       return photoObj.orig_photo.url;
     }
@@ -18,22 +18,17 @@
     if (photoObj.m_src) return photoObj.m_src;
     if (photoObj.src) return photoObj.src;
 
-    // sizes array: standard VK size codes [base, w (2560), z (1280), y (807), x (604), m (130), s (75)]
+    // sizes array: prioritize base, w (2560), z (1280), y (807), x (604)
     if (Array.isArray(photoObj.sizes) && photoObj.sizes.length > 0) {
       const priority = ['base', 'w', 'z', 'y', 'x', 'm', 's'];
       for (const p of priority) {
-        const found = photoObj.sizes.find(s => {
-          if (!s) return false;
-          const type = s.type || s[0];
-          return type === p;
-        });
+        const found = photoObj.sizes.find(s => s && (s.type === p || s[0] === p));
         if (found) {
           const url = found.url || found.src || found[1];
           if (url) return url;
         }
       }
 
-      // Fallback: pick item with largest dimensions
       let bestItem = null;
       let maxArea = 0;
       for (const s of photoObj.sizes) {
@@ -54,80 +49,27 @@
     return photoObj.url || photoObj.src || '';
   }
 
-  // Deep search in nested objects for any photo items
-  function deepFindPhotos(obj, results = [], depth = 0) {
-    if (!obj || typeof obj !== 'object' || depth > 5) return;
-
-    if (obj.sizes || obj.orig_photo || obj.w_src || obj.z_src) {
-      const u = getBestPhotoUrl(obj);
-      if (u && !results.includes(u)) {
-        results.push(u);
-      }
-      return;
-    }
-
-    const values = Array.isArray(obj) ? obj : Object.values(obj);
-    for (const v of values) {
-      if (v && typeof v === 'object') {
-        deepFindPhotos(v, results, depth + 1);
-      }
-    }
-  }
-
   function extractMainWorldVkData() {
-    const data = {
-      found: false,
-      images: [],
-      desc: '',
-      author: '',
-      avatar: '',
-      date: '',
-      photoId: '',
-      wallId: ''
-    };
-
     try {
       const cur = window.cur || {};
 
-      // 1. Check Photoview (modal)
-      if (cur.pvData || cur.pvCurPhoto || document.getElementById('pv_box')) {
-        let currentPhotoObj = null;
-
-        if (cur.pvCurPhoto && typeof cur.pvCurPhoto === 'object') {
-          currentPhotoObj = cur.pvCurPhoto;
-        }
-
-        // Deep search cur.pvData for all photos (handles nesting by listId / albumId)
-        if (cur.pvData) {
-          deepFindPhotos(cur.pvData, data.images);
-        }
-
-        if (currentPhotoObj) {
-          const bestCur = getBestPhotoUrl(currentPhotoObj);
-          if (bestCur && !data.images.includes(bestCur)) {
-            data.images.unshift(bestCur);
-          }
-          if (currentPhotoObj.desc) data.desc = currentPhotoObj.desc;
-          if (currentPhotoObj.id) data.photoId = String(currentPhotoObj.id);
-          if (currentPhotoObj.author) data.author = String(currentPhotoObj.author);
-          if (currentPhotoObj.date) data.date = String(currentPhotoObj.date);
-        }
-
-        if (data.images.length > 0) {
-          data.found = true;
-        }
-      }
-
-      // 2. Check cur.wallData or active post
-      if (cur.wallData) {
-        deepFindPhotos(cur.wallData, data.images);
-        if (data.images.length > 0) data.found = true;
+      // Only inspect the currently active photo in photoview to avoid pulling old cached search photos
+      if (cur.pvCurPhoto && typeof cur.pvCurPhoto === 'object') {
+        const bestCur = getBestPhotoUrl(cur.pvCurPhoto);
+        return {
+          found: !!bestCur,
+          curPhotoUrl: bestCur || '',
+          desc: cur.pvCurPhoto.desc || '',
+          photoId: cur.pvCurPhoto.id ? String(cur.pvCurPhoto.id) : '',
+          author: cur.pvCurPhoto.author ? String(cur.pvCurPhoto.author) : '',
+          date: cur.pvCurPhoto.date ? String(cur.pvCurPhoto.date) : ''
+        };
       }
     } catch (e) {
       console.warn('[Douyin→FB / VK Inject] Error inspecting window.cur:', e);
     }
 
-    return data;
+    return { found: false };
   }
 
   // Listen for request from isolated content script
