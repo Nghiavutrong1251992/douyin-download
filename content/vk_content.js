@@ -117,7 +117,7 @@
   }
 
   // ===== 4. Listen for request from Main World (vk_inject.js) =====
-  function requestMainWorldData() {
+  function requestMainWorldData(payload = {}) {
     return new Promise((resolve) => {
       const handler = (event) => {
         if (!event.data || event.data.type !== 'RES_EXTRACT_VK') return;
@@ -130,9 +130,9 @@
       const timer = setTimeout(() => {
         window.removeEventListener('message', handler);
         resolve(null);
-      }, 800);
+      }, 1000);
 
-      window.postMessage({ type: 'REQ_EXTRACT_VK' }, '*');
+      window.postMessage({ type: 'REQ_EXTRACT_VK', payload }, '*');
     });
   }
 
@@ -334,12 +334,45 @@
   // ===== 8. Core VK Extractor (Strictly isolated by post) =====
   async function extractVkData() {
     const currentUrl = window.location.href;
-    const photoMatch = currentUrl.match(/z=photo([-\d]+)_(\d+)/i) || currentUrl.match(/\/photo([-\d]+)_(\d+)/i);
-    const wallMatch = currentUrl.match(/wall([-\d]+)_(\d+)/i);
+    const decodedUrl = decodeURIComponent(currentUrl);
+    const photoMatch = decodedUrl.match(/z=photo([-\d]+)_(\d+)/i) || decodedUrl.match(/\/photo([-\d]+)_(\d+)/i);
+    const wallMatch = decodedUrl.match(/wall([-\d]+)_(\d+)/i);
+
+    const activePostId = wallMatch
+      ? `wall${wallMatch[1]}_${wallMatch[2]}`
+      : (photoMatch ? `photo${photoMatch[1]}_${photoMatch[2]}` : '');
 
     // ========================================================
-    // SCENARIO 1: URL SPECIFIES A WALL POST (e.g. wall74543688_55815)
-    // ONLY extract this post's photos and return immediately!
+    // PRIORITY 1: REQUEST MAIN WORLD MEMORY (window.cur)
+    // MAIN world holds full original resolution photos of the current post
+    // ========================================================
+    const mainData = await requestMainWorldData({ url: currentUrl });
+    if (mainData && mainData.found && Array.isArray(mainData.images) && mainData.images.length > 0) {
+      const descEl = document.querySelector('.pv_desc, #pv_desc, .pv_post_text, #pv_post_text, .wall_post_text');
+      const authorEl = document.querySelector('.pv_author_name, #pv_author_name, .pv_owner, #pv_owner a, .post_author .author');
+      const avatarEl = document.querySelector('.pv_author_thumb img, #pv_author_thumb img, .post_image img');
+      const dateEl = document.querySelector('.pv_date, #pv_date, .rel_date, .post_date');
+
+      let targetItemId = activePostId;
+      if (!targetItemId && mainData.listId) {
+        targetItemId = mainData.listId.startsWith('wall') ? mainData.listId : (`wall${mainData.listId}`);
+      }
+      if (!targetItemId && mainData.photoId) {
+        targetItemId = `photo${mainData.photoId}`;
+      }
+
+      return buildResult({
+        itemId: targetItemId || ('vk_' + Date.now()),
+        images: mainData.images,
+        caption: (descEl ? descEl.innerText.trim() : '') || mainData.desc || '',
+        author: (authorEl ? authorEl.innerText.trim() : '') || mainData.author || '',
+        avatar: (avatarEl ? avatarEl.src : '') || '',
+        createTime: (dateEl ? dateEl.innerText.trim() : '') || mainData.date || ''
+      });
+    }
+
+    // ========================================================
+    // PRIORITY 2: WALL POST IN CURRENT DOM
     // ========================================================
     if (wallMatch) {
       const targetWallRaw = `${wallMatch[1]}_${wallMatch[2]}`;
@@ -364,94 +397,71 @@
         }
       }
 
-      // B. If not in current DOM, fetch this wall post directly
-      try {
-        const wallResp = await fetch(`/wall${targetWallRaw}`, {
-          headers: { 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
-          credentials: 'same-origin'
-        });
-
-        if (wallResp.ok) {
-          const html = await wallResp.text();
-          const dataExecMatches = html.matchAll(/data-exec="([^"]+)"/g);
-          for (const m of dataExecMatches) {
-            if (m[1].includes(targetWallRaw) || m[1].includes(`"id":${targetPostIdOnly}`)) {
-              const parsed = extractFromDataExecString(m[1], targetWallRaw);
-              if (parsed && parsed.photos.length > 0) {
-                return buildResult({
-                  itemId: `wall${targetWallRaw}`,
-                  images: parsed.photos,
-                  caption: parsed.caption,
-                  author: parsed.author,
-                  avatar: parsed.avatar,
-                  createTime: parsed.date
-                });
-              }
-            }
+      // B. Check for target post element in DOM: #post74543688_55815 or .post[data-post-id]
+      const targetPostEl = document.getElementById(`post${targetWallRaw}`) ||
+                           document.getElementById(`post${wallMatch[1]}_${wallMatch[2]}`) ||
+                           document.querySelector(`[data-post-id="${targetWallRaw}"]`) ||
+                           document.querySelector(`div[id*="${targetPostIdOnly}"]`);
+      if (targetPostEl) {
+        const thumbs = targetPostEl.querySelectorAll(
+          '.page_post_sized_thumbs a, a.page_post_thumb_wrap, div.image_cover, [data-photo-id], .page_post_sized_thumbs img'
+        );
+        const postPhotos = [];
+        for (const thumb of thumbs) {
+          const urls = extractUrlsFromVkElement(thumb);
+          for (const u of urls) {
+            const clean = cleanVkImageUrl(u);
+            if (clean && !postPhotos.includes(clean)) postPhotos.push(clean);
           }
         }
-      } catch (fetchErr) {
-        console.warn('[Douyin→FB / VK] Fetch wall post error:', fetchErr);
+        if (postPhotos.length > 0) {
+          const textEl = targetPostEl.querySelector('.wall_post_text, .wall_text, .PostText');
+          const authEl = targetPostEl.querySelector('.post_author .author, .PostHeaderTitle, .author');
+          const avEl = targetPostEl.querySelector('.post_image img, .PostHeaderTitle__avatar img, .post_author img');
+          const timeEl = targetPostEl.querySelector('.post_date, .PostHeaderSubtitle, .rel_date');
+
+          return buildResult({
+            itemId: `wall${targetWallRaw}`,
+            images: postPhotos,
+            caption: textEl ? textEl.innerText.trim() : '',
+            author: authEl ? authEl.innerText.trim() : '',
+            avatar: avEl ? avEl.src : '',
+            createTime: timeEl ? timeEl.innerText.trim() : ''
+          });
+        }
       }
     }
 
     // ========================================================
-    // SCENARIO 2: PHOTO VIEWER MODAL IS OPEN IN DOM
-    // Check if it belongs to a wall post, or extract only active photo
+    // PRIORITY 3: PHOTO VIEWER MODAL IN DOM (FALLBACK)
     // ========================================================
     const pvBox = document.getElementById('pv_box') || document.querySelector('.pv_cur_photo, #layer, #pv_photo');
     if (pvBox && (pvBox.offsetWidth > 0 || pvBox.offsetHeight > 0 || document.getElementById('pv_photo'))) {
-      // Check if photo modal points to an attached wall post
-      const wallLink = pvBox.querySelector('a[href*="/wall"]');
-      if (wallLink) {
-        const m = wallLink.getAttribute('href').match(/wall([-\d]+)_(\d+)/);
-        if (m) {
-          const targetWallRaw = `${m[1]}_${m[2]}`;
-          try {
-            const wallResp = await fetch(`/wall${targetWallRaw}`, {
-              headers: { 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
-              credentials: 'same-origin'
-            });
-            if (wallResp.ok) {
-              const html = await wallResp.text();
-              const dataExecMatches = html.matchAll(/data-exec="([^"]+)"/g);
-              for (const em of dataExecMatches) {
-                if (em[1].includes(targetWallRaw) || em[1].includes(`"id":${m[2]}`)) {
-                  const parsed = extractFromDataExecString(em[1], targetWallRaw);
-                  if (parsed && parsed.photos.length > 0) {
-                    return buildResult({
-                      itemId: `wall${targetWallRaw}`,
-                      images: parsed.photos,
-                      caption: parsed.caption,
-                      author: parsed.author,
-                      avatar: parsed.avatar,
-                      createTime: parsed.date
-                    });
-                  }
-                }
-              }
-            }
-          } catch(e) {}
-        }
-      }
+      const modalPhotos = [];
 
-      // Standalone photo modal (extract ONLY this single photo, never leak other posts)
-      let singlePhotoUrl = '';
+      // Check original link in modal
       const originalLink = document.querySelector(
         'a.pv_actions_more_href[href*="userapi.com"], a.pv_actions_more_href[href*="vkuserphoto.ru"], #pv_more_acts a[href*="userapi.com"], #pv_more_acts a[href*="vkuserphoto.ru"], a[href*="as=1"], a[href*="open=1"], #pv_open_original'
       );
       if (originalLink && originalLink.href) {
-        singlePhotoUrl = originalLink.href;
+        modalPhotos.push(cleanVkImageUrl(originalLink.href));
       }
 
-      if (!singlePhotoUrl) {
-        const pvImg = document.querySelector('#pv_photo img, .pv_cur_img, .pv_photo_wrap img, #pv_box img');
-        if (pvImg) singlePhotoUrl = pvImg.currentSrc || pvImg.src || pvImg.getAttribute('data-src') || '';
+      // Check current photo in viewer
+      const pvImg = document.querySelector('#pv_photo img, .pv_cur_img, .pv_photo_wrap img, #pv_box img');
+      if (pvImg) {
+        const src = pvImg.currentSrc || pvImg.src || pvImg.getAttribute('data-src');
+        if (src) modalPhotos.push(cleanVkImageUrl(src));
       }
 
-      const mainData = await requestMainWorldData();
-      if (!singlePhotoUrl && mainData && mainData.curPhotoUrl) {
-        singlePhotoUrl = mainData.curPhotoUrl;
+      // Check thumbnail strip in modal
+      const pvThumbs = pvBox.querySelectorAll('.pv_thumb, .pv_bottom_info img, a.pv_thumb_item');
+      for (const pt of pvThumbs) {
+        const urls = extractUrlsFromVkElement(pt);
+        for (const u of urls) {
+          const clean = cleanVkImageUrl(u);
+          if (clean && !modalPhotos.includes(clean)) modalPhotos.push(clean);
+        }
       }
 
       const descEl = document.querySelector('.pv_desc, #pv_desc, .pv_post_text, #pv_post_text');
@@ -459,18 +469,16 @@
       const avatarEl = document.querySelector('.pv_author_thumb img, #pv_author_thumb img');
       const dateEl = document.querySelector('.pv_date, #pv_date');
 
-      if (singlePhotoUrl) {
-        const cleanUrl = cleanVkImageUrl(singlePhotoUrl);
-        if (cleanUrl) {
-          return buildResult({
-            itemId: (photoMatch ? `photo${photoMatch[1]}_${photoMatch[2]}` : '') || ('vk_' + Date.now()),
-            images: [cleanUrl],
-            caption: descEl ? descEl.innerText.trim() : (mainData?.desc || ''),
-            author: authorEl ? authorEl.innerText.trim() : '',
-            avatar: avatarEl ? avatarEl.src : '',
-            createTime: dateEl ? dateEl.innerText.trim() : ''
-          });
-        }
+      const validModalPhotos = modalPhotos.filter(Boolean);
+      if (validModalPhotos.length > 0) {
+        return buildResult({
+          itemId: activePostId || ('vk_' + Date.now()),
+          images: validModalPhotos,
+          caption: descEl ? descEl.innerText.trim() : (mainData?.desc || ''),
+          author: authorEl ? authorEl.innerText.trim() : '',
+          avatar: avatarEl ? avatarEl.src : '',
+          createTime: dateEl ? dateEl.innerText.trim() : ''
+        });
       }
     }
 
