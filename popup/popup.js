@@ -379,22 +379,25 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
     statusBar.classList.add('hidden');
   }
 
-  // ===== EXTRACT FROM ACTIVE DOUYIN TAB =====
+  // ===== EXTRACT FROM ACTIVE TAB (DOUYIN / VK) =====
   btnGrabActiveTab.addEventListener('click', () => {
-    showStatus('Đang quét nội dung từ tab Douyin hiện tại...');
+    showStatus('Đang quét nội dung từ tab hiện tại...');
 
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       const activeTab = tabs[0];
-      if (!activeTab || !activeTab.url || !activeTab.url.includes('douyin.com')) {
+      const isDouyin = activeTab && activeTab.url && activeTab.url.includes('douyin.com');
+      const isVk = activeTab && activeTab.url && (activeTab.url.includes('vk.com') || activeTab.url.includes('vk.ru'));
+
+      if (!activeTab || (!isDouyin && !isVk)) {
         hideStatus();
-        alert('Tab hiện tại không phải trang douyin.com.\nHãy mở bài viết trên Douyin trước!');
+        alert('Tab hiện tại không phải trang douyin.com hoặc vk.com / vk.ru.\nHãy mở bài viết trên Douyin hoặc VK trước!');
         return;
       }
 
       chrome.tabs.sendMessage(activeTab.id, { type: 'GET_CURRENT_PAGE_MEDIA' }, (res) => {
         hideStatus();
         if (chrome.runtime.lastError) {
-          alert('Không thể kết nối với trang Douyin. Vui lòng F5 tải lại trang Douyin rồi bấm lại.');
+          alert('Không thể kết nối với trang. Vui lòng F5 tải lại trang rồi bấm lại.');
           return;
         }
         if (res && res.success) {
@@ -405,7 +408,7 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
           });
           displayExtractedData(res);
         } else {
-          alert('Không tìm thấy ảnh/video. Hãy mở đúng trang chi tiết bài viết (click vào bài note hoặc video).');
+          alert(res?.error || 'Không tìm thấy ảnh/video. Hãy mở đúng trang chi tiết bài viết (click vào bài note, ảnh hoặc video).');
         }
       });
     });
@@ -415,7 +418,7 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
   btnParseLink.addEventListener('click', () => {
     const input = douyinInput.value.trim();
     if (!input) {
-      alert('Vui lòng dán link hoặc đoạn chia sẻ Douyin.');
+      alert('Vui lòng dán link bài viết Douyin hoặc VK.');
       return;
     }
 
@@ -437,7 +440,7 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
         if (retries > maxRetries) {
           hideStatus();
           btnParseLink.disabled = false;
-          alert('Trang Douyin tải quá lâu. Hãy chuyển sang tab vừa mở và bấm "Tab hiện tại".');
+          alert('Trang tải quá lâu. Hãy chuyển sang tab vừa mở và bấm "Tab hiện tại".');
           return;
         }
 
@@ -466,9 +469,12 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
     reviewArea.classList.remove('hidden');
 
     // Author & metadata
-    metaAuthorName.innerText = 'Kênh: ' + (data.author || 'Tác giả Douyin');
+    const isVk = data.platform === 'vk';
+    metaAuthorName.innerText = (isVk ? 'Tác giả VK: ' : 'Kênh: ') + (data.author || (isVk ? 'Tác giả VK' : 'Tác giả Douyin'));
     metaPostTime.innerText = '🕒 Đăng lúc: ' + (data.createTime || 'Hôm nay');
-    metaBadgeType.innerText = data.type === 'note' ? '图集 / Note' : 'Video';
+    metaBadgeType.innerText = isVk
+      ? (data.type === 'video' ? 'VK Video' : 'VK Ảnh / Post')
+      : (data.type === 'note' ? '图集 / Note' : 'Video');
     if (data.avatar) {
       metaAuthorAvatar.src = data.avatar;
       metaAuthorAvatar.style.display = 'block';
@@ -819,17 +825,25 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
         openViewer: true
       }
     }, (res) => {
+      btnSaveAndView.disabled = false;
       if (chrome.runtime.lastError) {
         console.warn('Lỗi background download, chuyển sang lưu trực tiếp:', chrome.runtime.lastError);
         processAndSavePost().then(saved => {
           hideStatus();
-          btnSaveAndView.disabled = false;
           chrome.tabs.create({ url: chrome.runtime.getURL(`viewer/viewer.html?id=${saved.id}`) });
         }).catch(err => {
           hideStatus();
-          btnSaveAndView.disabled = false;
           alert('Lỗi: ' + err.message);
         });
+      } else if (res && res.success) {
+        hideStatus();
+        const saved = res.postRecord;
+        if (saved && saved.id) {
+          chrome.tabs.create({ url: chrome.runtime.getURL(`viewer/viewer.html?id=${saved.id}`) });
+        }
+      } else if (res && !res.success) {
+        hideStatus();
+        alert('Lỗi tải ảnh: ' + (res.error || 'Không xác định'));
       }
     });
   });
@@ -1002,9 +1016,16 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
   // Restore current background download status if user switches back to popup
   chrome.storage.local.get(['backgroundDownload'], (res) => {
     const bg = res.backgroundDownload;
-    if (bg && bg.active) {
-      showStatus(`⏳ Đang tải ảnh ${bg.current}/${bg.total} ở chế độ nền... Bạn có thể chuyển tab thoải mái!`);
+    const now = Date.now();
+    const isStale = bg?.startedAt && (now - bg.startedAt > 90000);
+    if (bg && bg.active && !isStale) {
+      showStatus(`⏳ Đang tải ảnh ${bg.current || 0}/${bg.total || 0} ở chế độ nền... Bạn có thể chuyển tab thoải mái!`);
       btnSaveAndView.disabled = true;
+    } else {
+      if (bg && bg.active && isStale) {
+        chrome.storage.local.set({ backgroundDownload: { active: false } });
+      }
+      btnSaveAndView.disabled = false;
     }
   });
 });

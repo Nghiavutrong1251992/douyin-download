@@ -51,20 +51,42 @@ async function fetchImageAsBlob(imageUrl) {
     url = 'https:' + url;
   }
 
-  const response = await fetch(url, {
-    method: 'GET',
-    headers: {
-      'Referer': 'https://www.douyin.com/',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-      'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8',
-      'Sec-Fetch-Dest': 'image',
-      'Sec-Fetch-Mode': 'no-cors',
-      'Sec-Fetch-Site': 'cross-site'
-    },
-    mode: 'cors',
-    credentials: 'omit'
-  });
+  const isVk = url.includes('userapi.com') ||
+               url.includes('vkuserphoto.ru') ||
+               url.includes('vk.com') ||
+               url.includes('vk.ru') ||
+               url.includes('mycdn.me') ||
+               url.includes('okcdn.ru');
+
+  const headers = isVk ? {
+    'Referer': 'https://vk.com/',
+    'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
+  } : {
+    'Referer': 'https://www.douyin.com/',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9,ru;q=0.8,zh-CN;q=0.7'
+  };
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 20000);
+
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'GET',
+      headers: headers,
+      signal: controller.signal,
+      credentials: 'omit'
+    });
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      throw new Error(`Timeout khi tải ảnh (quá 20s): ${url.substring(0, 80)}`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (!response.ok) {
     throw new Error(`HTTP ${response.status} khi tải ảnh: ${url.substring(0, 80)}...`);
@@ -165,7 +187,7 @@ async function backgroundProcessAndSavePost(payload) {
   }
 
   const postId = payload.postId || mediaData.itemId || String(Date.now());
-  const authorName = mediaData.author || 'Tác giả Douyin';
+  const authorName = mediaData.author || (mediaData.platform === 'vk' ? 'Tác giả VK' : 'Tác giả Douyin');
   const total = selectedUrls.length;
 
   let backgroundState = {
@@ -356,7 +378,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   // Download single image to disk
   if (request.type === 'DOWNLOAD_IMAGE') {
-    downloadImageFile(request.url, request.filename || 'douyin_photo.jpg')
+    const isVk = request.url && (request.url.includes('userapi.com') || request.url.includes('vk.com') || request.url.includes('vk.ru'));
+    const defaultFilename = isVk ? 'vk_photo.jpg' : 'douyin_photo.jpg';
+    downloadImageFile(request.url, request.filename || defaultFilename)
       .then(id => sendResponse({ success: true, downloadId: id }))
       .catch(err => sendResponse({ success: false, error: err.message }));
     return true;
@@ -387,8 +411,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'START_BACKGROUND_SAVE_POST') {
     backgroundProcessAndSavePost(request.payload || {})
       .then(postRecord => sendResponse({ success: true, postRecord }))
-      .catch(err => {
+      .catch(async (err) => {
         console.error('[Background] Download error:', err);
+        await chrome.storage.local.set({
+          backgroundDownload: { active: false, complete: false, error: err.message }
+        });
+        if (chrome.action?.setBadgeText) {
+          chrome.action.setBadgeText({ text: '!' });
+          chrome.action.setBadgeBackgroundColor({ color: '#ef4444' });
+          setTimeout(() => chrome.action.setBadgeText({ text: '' }), 5000);
+        }
         sendResponse({ success: false, error: err.message });
       });
     return true;

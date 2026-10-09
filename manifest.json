@@ -26,6 +26,13 @@
     "*://*.ibyteimg.com/*",
     "*://*.tiktokcdn.com/*",
     "*://*.pstatp.com/*",
+    "*://*.vk.com/*",
+    "*://*.vk.ru/*",
+    "*://*.userapi.com/*",
+    "*://*.vkuserphoto.ru/*",
+    "*://*.mycdn.me/*",
+    "*://*.okcdn.ru/*",
+    "*://*.vkvideo.ru/*",
     "https://api.deepseek.com/*",
     "https://graph.facebook.com/*"
   ],
@@ -57,6 +64,14 @@
       "js": ["content/content.js"],
       "css": ["content/content.css"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "*://*.vk.com/*",
+        "*://*.vk.ru/*"
+      ],
+      "js": ["content/vk_content.js"],
+      "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
@@ -67,6 +82,17 @@
         "lib/*"
       ],
       "matches": ["*://*.douyin.com/*"]
+    },
+    {
+      "resources": [
+        "content/vk_inject.js",
+        "icons/*",
+        "lib/*"
+      ],
+      "matches": [
+        "*://*.vk.com/*",
+        "*://*.vk.ru/*"
+      ]
     }
   ],
   "declarative_net_request": {
