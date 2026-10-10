@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Douyin to Facebook Auto-Pilot",
   "version": "1.1.0",
-  "description": "Lấy ảnh HD, video không watermark từ Douyin, dịch & viết lại bằng DeepSeek AI và chuẩn bị đăng lên Facebook Fanpage.",
+  "description": "Lấy ảnh HD, video không watermark từ Douyin, VK, RedNote (Xiaohongshu), dịch & viết lại bằng DeepSeek AI và chuẩn bị đăng lên Facebook Fanpage.",
   "permissions": [
     "storage",
     "downloads",
@@ -33,6 +33,12 @@
     "*://*.mycdn.me/*",
     "*://*.okcdn.ru/*",
     "*://*.vkvideo.ru/*",
+    "*://*.xiaohongshu.com/*",
+    "*://*.xhscdn.com/*",
+    "*://*.xhslink.com/*",
+    "*://*.rednote.com/*",
+    "*://*.rednotecdn.com/*",
+    "*://ci.xiaohongshu.com/*",
     "https://api.deepseek.com/*",
     "https://graph.facebook.com/*"
   ],
@@ -72,6 +78,16 @@
       ],
       "js": ["content/vk_content.js"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "*://*.xiaohongshu.com/*",
+        "*://*.xhslink.com/*",
+        "*://*.rednote.com/*"
+      ],
+      "js": ["content/xhs_content.js"],
+      "css": ["content/content.css"],
+      "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
@@ -92,6 +108,18 @@
       "matches": [
         "*://*.vk.com/*",
         "*://*.vk.ru/*"
+      ]
+    },
+    {
+      "resources": [
+        "content/xhs_inject.js",
+        "icons/*",
+        "lib/*"
+      ],
+      "matches": [
+        "*://*.xiaohongshu.com/*",
+        "*://*.xhslink.com/*",
+        "*://*.rednote.com/*"
       ]
     }
   ],

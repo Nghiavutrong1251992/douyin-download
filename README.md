@@ -1,16 +1,17 @@
-# 🚀 Douyin to Facebook Auto-Pilot (Chrome Extension)
+# 🚀 Douyin & RedNote to Facebook Auto-Pilot (Chrome Extension)
 
-Tiện ích mở rộng Chrome / Microsoft Edge giúp bóc tách toàn bộ ảnh HD không watermark, caption từ Douyin và tự động dịch, viết lại sang tiếng Anh chuẩn phong cách bài đăng Facebook bằng **DeepSeek AI**.
+Tiện ích mở rộng Chrome / Microsoft Edge giúp bóc tách toàn bộ ảnh HD không watermark, caption từ **Douyin**, **VKontakte** và **RedNote (Xiaohongshu - 小红书)**, tự động dịch và viết lại sang tiếng Anh chuẩn phong cách bài đăng Facebook bằng **DeepSeek AI**.
 
 ---
 
 ## 📌 Tính năng nổi bật
-1. **Bóc tách ảnh gốc Full HD**:
-   - Đối với bài đăng Album ảnh / Slideshow (Douyin Note / 图文 như bài cáp treo Phú Quốc): Lấy toàn bộ ảnh gốc độ phân giải cao nhất từ CDN ByteDance, loại bỏ hoàn toàn watermark Douyin.
-   - Đối với video: Hỗ trợ lấy link video không watermark.
+1. **Bóc tách ảnh gốc Full HD không Watermark**:
+   - **Douyin**: Lấy toàn bộ ảnh gốc độ phân giải cao nhất từ CDN ByteDance.
+   - **RedNote (Xiaohongshu)**: Tự động trích xuất ảnh gốc HD không dính watermark từ cụm CDN `sns-img-hw.xhscdn.com`, `sns-img-bd.xhscdn.com` và bóc tách video chuyển động Live Photo MP4.
+   - **VKontakte**: Quét ảnh chất lượng cao nhất từng bài post riêng biệt.
 2. **Dịch & Viết lại bằng DeepSeek AI (`deepseek-chat`)**:
-   - Tự động phân tích ngữ cảnh bài tiếng Trung.
-   - Viết lại thành bài đăng Facebook hoàn chỉnh: Hook giật tít, mô tả du lịch hấp dẫn, lời kêu gọi hành động (CTA), bộ hashtag tiếng Anh thịnh hành (thay thế hashtag Trung Quốc).
+   - Tự động phân tích ngữ cảnh bài tiếng Trung / Nga.
+   - Viết lại thành bài đăng Facebook hoàn chỉnh: Hook giật tít, mô tả du lịch hấp dẫn, lời kêu gọi hành động (CTA), bộ hashtag tiếng Anh thịnh hành.
 3. **Giao diện Duyệt bài (Review Gallery)**:
    - Hiển thị danh sách ảnh kèm số thứ tự.
    - Cho phép chọn/bỏ chọn từng ảnh theo ý muốn.
@@ -18,8 +19,8 @@ Tiện ích mở rộng Chrome / Microsoft Edge giúp bóc tách toàn bộ ản
 4. **Đóng gói 1-Click**:
    - Tải về file `.zip` chứa toàn bộ ảnh đã chọn + file text `caption_facebook.txt`.
    - Nút copy nhanh bài đăng vào clipboard.
-5. **Nút bấm nổi ngay trên Douyin (On-page Action)**:
-   - Khi bạn lướt `douyin.com`, góc phải dưới màn hình có sẵn nút *"Lấy bài sang FB"*, bấm 1 cái là tự động đọc toàn bộ ảnh và caption của bài đang xem.
+5. **Nút bấm nổi thông minh On-Page Action**:
+   - Khi bạn lướt `douyin.com`, `vk.com`, hoặc `xiaohongshu.com` / `rednote.com`, góc phải dưới màn hình có sẵn nút *"Lấy bài sang FB"* (hoặc *"Lấy bài RedNote sang FB"*), bấm 1 cái là tự động đọc toàn bộ ảnh và caption của bài đang xem.
 6. **Phân loại ảnh và thư mục Offline**:
    - Gắn nhiều tag cho từng ảnh trong Offline Studio và tìm bài/ảnh lại theo tag.
    - Chọn thư mục thật trên máy trong tab **Cài đặt**. Extension tự tạo `Douyin_Offline`, mỗi bài có thư mục ảnh, caption và `metadata.json` chứa tag.

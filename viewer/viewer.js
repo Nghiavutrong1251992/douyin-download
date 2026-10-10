@@ -353,8 +353,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     updateFolderBadge();
 
     if (post.sourceUrl || post.url) {
-      viewOriginLink.href = post.sourceUrl || post.url;
+      const srcUrl = post.sourceUrl || post.url;
+      viewOriginLink.href = srcUrl;
       viewOriginLink.style.display = 'inline-block';
+      if (srcUrl.includes('xiaohongshu') || srcUrl.includes('xhslink') || srcUrl.includes('rednote')) {
+        viewOriginLink.innerText = '🔗 Xem link RedNote gốc';
+      } else if (srcUrl.includes('vk.com') || srcUrl.includes('vk.ru')) {
+        viewOriginLink.innerText = '🔗 Xem link VK gốc';
+      } else {
+        viewOriginLink.innerText = '🔗 Xem link Douyin gốc';
+      }
     } else {
       viewOriginLink.style.display = 'none';
     }

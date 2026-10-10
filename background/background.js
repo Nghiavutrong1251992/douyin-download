@@ -38,18 +38,33 @@ Keep tone enthusiastic, inspiring, and authentic. Output ONLY the ready-to-publi
   });
 });
 
+// ============ IN-MEMORY DIAGNOSTIC LOG BUFFER ============
+globalThis.__DIAGNOSTIC_LOGS__ = globalThis.__DIAGNOSTIC_LOGS__ || [];
+
+function addDiagLog(tag, message, details = null) {
+  const time = new Date().toLocaleTimeString('vi-VN');
+  const entry = { time, tag, message, details };
+  globalThis.__DIAGNOSTIC_LOGS__.push(entry);
+  if (globalThis.__DIAGNOSTIC_LOGS__.length > 80) {
+    globalThis.__DIAGNOSTIC_LOGS__.shift();
+  }
+  if (details) {
+    console.log(`[${time}][${tag}] ${message}`, details);
+  } else {
+    console.log(`[${time}][${tag}] ${message}`);
+  }
+}
+
 // ============ IMAGE DOWNLOAD WITH CORRECT HEADERS ============
-// This is the KEY function: Douyin CDN (douyinpic.com, byteimg.com)
-// requires Referer: https://www.douyin.com/ or returns 403/empty HTML.
-// We use fetch() from the background service worker which has host_permissions
-// to bypass CORS, and we set the correct Referer header.
+// Douyin CDN (douyinpic.com) and RedNote CDN (xhscdn.com)
+// require correct Referer and headers or block hotlinks.
+// We use fetch() from the background service worker with host_permissions.
 
 async function fetchImageAsBlob(imageUrl) {
-  // Clean up the URL
-  let url = imageUrl.trim();
-  if (!url.startsWith('http')) {
-    url = 'https:' + url;
-  }
+  let url = (imageUrl || '').trim();
+  if (url.startsWith('//')) url = 'https:' + url;
+  if (!url.startsWith('http')) url = 'https:' + url;
+  url = url.replace(/^http:/, 'https:');
 
   const isVk = url.includes('userapi.com') ||
                url.includes('vkuserphoto.ru') ||
@@ -58,53 +73,87 @@ async function fetchImageAsBlob(imageUrl) {
                url.includes('mycdn.me') ||
                url.includes('okcdn.ru');
 
-  const headers = isVk ? {
-    'Referer': 'https://vk.com/',
-    'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
-  } : {
-    'Referer': 'https://www.douyin.com/',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-    'Accept-Language': 'en-US,en;q=0.9,ru;q=0.8,zh-CN;q=0.7'
-  };
+  const isXhs = url.includes('xhscdn.com') ||
+                url.includes('rednotecdn.com') ||
+                url.includes('xiaohongshu.com') ||
+                url.includes('xhslink.com') ||
+                url.includes('rednote.com');
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 20000);
+  addDiagLog('Fetch', `Bắt đầu nạp ảnh: ${url.substring(0, 75)} (Platform: ${isXhs ? 'RedNote' : isVk ? 'VK' : 'Douyin'})`);
 
-  let response;
-  try {
-    response = await fetch(url, {
-      method: 'GET',
-      headers: headers,
-      signal: controller.signal,
-      credentials: 'omit'
-    });
-  } catch (err) {
-    if (err.name === 'AbortError') {
-      throw new Error(`Timeout khi tải ảnh (quá 20s): ${url.substring(0, 80)}`);
+  // Build list of candidate URLs
+  const candidates = [];
+  if (isXhs) {
+    // Priority 1: The original signed URL (vital for rednotecdn.com / xhscdn token verification)
+    if (!url.includes('ci.xiaohongshu.com') && !url.includes('sns-img-hw.xhscdn.com/1040g')) {
+      if (!candidates.includes(url)) candidates.push(url);
+      const cleanRaw = url.split('!')[0];
+      if (cleanRaw !== url && !candidates.includes(cleanRaw)) candidates.push(cleanRaw);
     }
-    throw err;
-  } finally {
-    clearTimeout(timeoutId);
+
+    // Priority 2: Direct CDN nodes if traceId exists
+    const traceMatch = url.match(/(1040g[0-9a-zA-Z]+)/) || url.match(/\/([a-zA-Z0-9_-]{24,50})(?:!|\?|$)/);
+    const traceId = traceMatch ? traceMatch[1] : '';
+    if (traceId) {
+      const hw = `https://sns-img-hw.xhscdn.com/${traceId}`;
+      const bd = `https://sns-img-bd.xhscdn.com/${traceId}`;
+      const qc = `https://sns-img-qc.xhscdn.com/${traceId}`;
+      if (!candidates.includes(hw)) candidates.push(hw);
+      if (!candidates.includes(bd)) candidates.push(bd);
+      if (!candidates.includes(qc)) candidates.push(qc);
+    }
+  } else {
+    candidates.push(url);
   }
 
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status} khi tải ảnh: ${url.substring(0, 80)}...`);
-  }
+  addDiagLog('Fetch', `Danh sách ${candidates.length} candidate URLs: ${candidates.map(c => c.split('?')[0].slice(-30)).join(' | ')}`);
 
-  const contentType = response.headers.get('Content-Type') || '';
-  const blob = await response.blob();
+  let lastError = null;
+  const attempts = [];
 
-  // Validate: real image should be > 1KB and have image content type
-  if (blob.size < 1024) {
-    // Might be an HTML error page — try to read it
-    const text = await blob.text();
-    if (text.includes('<html') || text.includes('<!DOCTYPE')) {
-      throw new Error(`CDN trả về HTML thay vì ảnh (${blob.size} bytes). URL có thể đã hết hạn.`);
+  for (let i = 0; i < candidates.length; i++) {
+    const targetUrl = candidates[i];
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
+    try {
+      addDiagLog('Fetch-Try', `Thử candidate #${i + 1}/${candidates.length}: ${targetUrl.substring(0, 65)}`);
+      const response = await fetch(targetUrl, {
+        method: 'GET',
+        headers: {
+          'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
+        },
+        signal: controller.signal,
+        credentials: 'omit'
+      });
+      clearTimeout(timeoutId);
+
+      const contentType = response.headers.get('Content-Type') || '';
+      if (response.ok) {
+        const blob = await response.blob();
+        attempts.push(`[#${i + 1}] HTTP ${response.status} (${blob.size}B, ${contentType}) - OK`);
+        if (blob.size >= 1024) {
+          addDiagLog('Fetch-Success', `✅ Tải thành công từ candidate #${i + 1}: ${targetUrl.substring(0, 60)} (${blob.size} bytes)`);
+          return blob;
+        } else {
+          addDiagLog('Fetch-Warn', `⚠️ Candidate #${i + 1} trả về file quá nhỏ (<1KB): ${blob.size}B`);
+        }
+      } else {
+        attempts.push(`[#${i + 1}] HTTP ${response.status} (${contentType})`);
+        addDiagLog('Fetch-Fail', `❌ Candidate #${i + 1} thất bại -> HTTP ${response.status}`);
+        lastError = new Error(`HTTP ${response.status} khi tải từ ${targetUrl.substring(0, 60)}`);
+      }
+    } catch (err) {
+      clearTimeout(timeoutId);
+      const errMsg = err.name === 'AbortError' ? 'Timeout 12s' : err.message;
+      attempts.push(`[#${i + 1}] Lỗi mạng: ${errMsg}`);
+      addDiagLog('Fetch-Error', `❌ Candidate #${i + 1} lỗi mạng: ${errMsg}`);
+      lastError = err;
     }
   }
 
-  return blob;
+  const finalMsg = `Không tải được ảnh sau ${candidates.length} lần thử. Chi tiết: ${attempts.join('; ')}`;
+  addDiagLog('Fetch-Fatal', `⛔ ${finalMsg}`);
+  throw new Error(finalMsg);
 }
 
 // Convert Blob to Data URL safely in Worker without DOM FileReader dependency
@@ -187,7 +236,7 @@ async function backgroundProcessAndSavePost(payload) {
   }
 
   const postId = payload.postId || mediaData.itemId || String(Date.now());
-  const authorName = mediaData.author || (mediaData.platform === 'vk' ? 'Tác giả VK' : 'Tác giả Douyin');
+  const authorName = mediaData.author || (mediaData.platform === 'vk' ? 'Tác giả VK' : (mediaData.platform === 'rednote' || mediaData.platform === 'xhs' ? 'Tác giả RedNote' : 'Tác giả Douyin'));
   const total = selectedUrls.length;
 
   let backgroundState = {
@@ -365,21 +414,44 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   // Fetch image as base64 (for ZIP packaging)
   if (request.type === 'FETCH_IMAGE_BASE64') {
+    addDiagLog('IPC', `Nhận yêu cầu FETCH_IMAGE_BASE64: ${request.url ? request.url.substring(0, 70) : 'n/a'}`);
     fetchImageAsBase64(request.url)
-      .then(result => sendResponse({
-        success: true,
-        base64: result.base64,
-        size: result.size,
-        type: result.type
-      }))
-      .catch(err => sendResponse({ success: false, error: err.message }));
+      .then(result => {
+        addDiagLog('IPC', `✅ Trả kết quả FETCH_IMAGE_BASE64 thành công (${result.size} bytes)`);
+        sendResponse({
+          success: true,
+          base64: result.base64,
+          size: result.size,
+          type: result.type
+        });
+      })
+      .catch(err => {
+        addDiagLog('IPC', `❌ Thất bại FETCH_IMAGE_BASE64: ${err.message}`);
+        sendResponse({ success: false, error: err.message });
+      });
+    return true;
+  }
+
+  // Diagnostic Logs for debug modal
+  if (request.type === 'GET_DIAGNOSTIC_LOGS') {
+    sendResponse({
+      success: true,
+      logs: globalThis.__DIAGNOSTIC_LOGS__ || []
+    });
+    return true;
+  }
+
+  if (request.type === 'CLEAR_DIAGNOSTIC_LOGS') {
+    globalThis.__DIAGNOSTIC_LOGS__ = [];
+    sendResponse({ success: true });
     return true;
   }
 
   // Download single image to disk
   if (request.type === 'DOWNLOAD_IMAGE') {
     const isVk = request.url && (request.url.includes('userapi.com') || request.url.includes('vk.com') || request.url.includes('vk.ru'));
-    const defaultFilename = isVk ? 'vk_photo.jpg' : 'douyin_photo.jpg';
+    const isXhs = request.url && (request.url.includes('xhscdn.com') || request.url.includes('xiaohongshu.com') || request.url.includes('rednote.com') || request.url.includes('xhslink.com'));
+    const defaultFilename = isVk ? 'vk_photo.jpg' : (isXhs ? 'rednote_photo.jpg' : 'douyin_photo.jpg');
     downloadImageFile(request.url, request.filename || defaultFilename)
       .then(id => sendResponse({ success: true, downloadId: id }))
       .catch(err => sendResponse({ success: false, error: err.message }));

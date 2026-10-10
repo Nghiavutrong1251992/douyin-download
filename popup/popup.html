@@ -36,16 +36,16 @@
     <main id="tab-extract" class="tab-content active">
       <!-- Input Card -->
       <section class="card input-card">
-        <label for="douyin-input" class="card-label">Dán link hoặc văn bản chia sẻ từ Douyin / VK:</label>
+        <label for="douyin-input" class="card-label">Dán link hoặc văn bản chia sẻ từ Douyin / VK / RedNote:</label>
         <div class="input-wrapper">
-          <textarea id="douyin-input" placeholder="Ví dụ: Link Douyin https://v.douyin.com/... hoặc VK https://vk.com/wall... hay photo..."></textarea>
+          <textarea id="douyin-input" placeholder="Ví dụ: Douyin https://v.douyin.com/..., VK https://vk.com/..., hoặc RedNote https://xhslink.com/... hay https://www.xiaohongshu.com/explore/..."></textarea>
         </div>
         <div class="action-row">
           <button id="btn-parse-link" class="btn btn-primary">
             <svg viewBox="0 0 24 24" class="btn-icon"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
             <span>Phân tích & Lấy dữ liệu</span>
           </button>
-          <button id="btn-grab-active-tab" class="btn btn-secondary" title="Lấy nhanh bài đang mở trên tab Douyin hoặc VK hiện tại">
+          <button id="btn-grab-active-tab" class="btn btn-secondary" title="Lấy nhanh bài đang mở trên tab Douyin, VK hoặc RedNote hiện tại">
             <svg viewBox="0 0 24 24" class="btn-icon"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
             <span>Tab hiện tại</span>
           </button>
@@ -83,6 +83,7 @@
             <div class="gallery-controls">
               <button id="btn-select-all" class="btn-link">Chọn tất cả</button>
               <button id="btn-deselect-all" class="btn-link">Bỏ chọn</button>
+              <button id="btn-view-logs" class="btn-link" style="color:#f59e0b;font-weight:600;" title="Xem nhật ký gỡ lỗi">🔍 Log lỗi</button>
             </div>
           </div>
           <div id="image-grid" class="image-grid">
@@ -246,6 +247,21 @@
         <div id="save-status" class="save-status"></div>
       </div>
     </main>
+  <!-- Modal Debug / Log Viewer -->
+  <div id="modal-log-viewer" class="modal-overlay hidden" style="position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:99999;display:none;align-items:center;justify-content:center;padding:16px;">
+    <div style="background:#1e1e2d;border:1px solid #374151;border-radius:12px;width:100%;max-width:540px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 10px 25px rgba(0,0,0,0.5);">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #2d3748;">
+        <span style="font-weight:700;font-size:14px;color:#f3f4f6;">🛠️ Nhật Ký Gỡ Lỗi (Diagnostic Logs)</span>
+        <button id="btn-close-log-modal" style="background:none;border:none;color:#9ca3af;font-size:18px;cursor:pointer;">✕</button>
+      </div>
+      <div style="padding:12px 16px;flex:1;overflow-y:auto;">
+        <textarea id="log-viewer-content" style="width:100%;height:320px;background:#0d1117;color:#58a6ff;font-family:monospace;font-size:11px;border:1px solid #30363d;border-radius:6px;padding:8px;resize:none;" readonly></textarea>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;padding:12px 16px;border-top:1px solid #2d3748;">
+        <button id="btn-copy-debug-logs" class="btn btn-secondary-download" style="padding:6px 12px;font-size:12px;">📋 Sao chép Log</button>
+        <button id="btn-clear-debug-logs" class="btn btn-secondary-download" style="padding:6px 12px;font-size:12px;">🗑️ Xóa</button>
+      </div>
+    </div>
   </div>
 
   <script src="popup.js"></script>

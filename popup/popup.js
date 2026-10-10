@@ -35,6 +35,22 @@ document.addEventListener('DOMContentLoaded', () => {
   const videoPreview = document.getElementById('video-preview');
   const btnSelectAll = document.getElementById('btn-select-all');
   const btnDeselectAll = document.getElementById('btn-deselect-all');
+  const btnViewLogs = document.getElementById('btn-view-logs');
+  const modalLogViewer = document.getElementById('modal-log-viewer');
+  const logViewerContent = document.getElementById('log-viewer-content');
+  const btnCloseLogModal = document.getElementById('btn-close-log-modal');
+  const btnCopyDebugLogs = document.getElementById('btn-copy-debug-logs');
+  const btnClearDebugLogs = document.getElementById('btn-clear-debug-logs');
+
+  window.__POPUP_LOGS__ = window.__POPUP_LOGS__ || [];
+  function logPopup(msg, details = null) {
+    const time = new Date().toLocaleTimeString('vi-VN');
+    const line = `[${time}][Popup] ${msg}${details ? ' ' + (typeof details === 'object' ? JSON.stringify(details) : details) : ''}`;
+    window.__POPUP_LOGS__.push(line);
+    if (window.__POPUP_LOGS__.length > 60) window.__POPUP_LOGS__.shift();
+    if (details) console.log(`[Popup] ${msg}`, details);
+    else console.log(`[Popup] ${msg}`);
+  }
 
   const originalCaptionEl = document.getElementById('original-caption');
   const englishCaptionEl = document.getElementById('english-caption');
@@ -387,10 +403,15 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
       const activeTab = tabs[0];
       const isDouyin = activeTab && activeTab.url && activeTab.url.includes('douyin.com');
       const isVk = activeTab && activeTab.url && (activeTab.url.includes('vk.com') || activeTab.url.includes('vk.ru'));
+      const isXhs = activeTab && activeTab.url && (
+        activeTab.url.includes('xiaohongshu.com') ||
+        activeTab.url.includes('xhslink.com') ||
+        activeTab.url.includes('rednote.com')
+      );
 
-      if (!activeTab || (!isDouyin && !isVk)) {
+      if (!activeTab || (!isDouyin && !isVk && !isXhs)) {
         hideStatus();
-        alert('Tab hiện tại không phải trang douyin.com hoặc vk.com / vk.ru.\nHãy mở bài viết trên Douyin hoặc VK trước!');
+        alert('Tab hiện tại không phải trang douyin.com, vk.com hoặc xiaohongshu.com / rednote.com.\nHãy mở bài viết trên Douyin, VK hoặc RedNote trước!');
         return;
       }
 
@@ -418,7 +439,7 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
   btnParseLink.addEventListener('click', () => {
     const input = douyinInput.value.trim();
     if (!input) {
-      alert('Vui lòng dán link bài viết Douyin hoặc VK.');
+      alert('Vui lòng dán link bài viết Douyin, VK hoặc RedNote.');
       return;
     }
 
@@ -470,10 +491,15 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
 
     // Author & metadata
     const isVk = data.platform === 'vk';
-    metaAuthorName.innerText = (isVk ? 'Tác giả VK: ' : 'Kênh: ') + (data.author || (isVk ? 'Tác giả VK' : 'Tác giả Douyin'));
+    const isXhs = data.platform === 'rednote' || data.platform === 'xhs';
+    const authorPrefix = isVk ? 'Tác giả VK: ' : (isXhs ? 'Tác giả RedNote: ' : 'Kênh: ');
+    const defaultAuthor = isVk ? 'Tác giả VK' : (isXhs ? 'Tác giả RedNote' : 'Tác giả Douyin');
+    metaAuthorName.innerText = authorPrefix + (data.author || defaultAuthor);
     metaPostTime.innerText = '🕒 Đăng lúc: ' + (data.createTime || 'Hôm nay');
     metaBadgeType.innerText = isVk
       ? (data.type === 'video' ? 'VK Video' : 'VK Ảnh / Post')
+      : isXhs
+      ? (data.type === 'video' ? 'RedNote Video' : 'RedNote Ảnh / Note')
       : (data.type === 'note' ? '图集 / Note' : 'Video');
     if (data.avatar) {
       metaAuthorAvatar.src = data.avatar;
@@ -490,8 +516,25 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
     imageGrid.innerHTML = '';
     selectedImageUrls = [];
 
+    // Auto-clean any stale ci.xiaohongshu.com URLs
+    if (data.images && Array.isArray(data.images)) {
+      data.images = data.images.map(u => {
+        if (typeof u === 'string' && u.includes('ci.xiaohongshu.com')) {
+          const match = u.match(/ci\.xiaohongshu\.com\/([a-zA-Z0-9_-]+)/);
+          if (match && match[1]) {
+            return `https://sns-img-hw.xhscdn.com/${match[1]}`;
+          }
+        }
+        return u;
+      });
+    }
+
+    logPopup(`Hiển thị bài viết (${data.platform || 'douyin'}), số ảnh: ${data.images?.length || 0}`);
+
     if (data.images && data.images.length > 0) {
-      mediaCountLabel.innerText = `Danh sách ảnh HD (${data.images.length} ảnh)`;
+      const liveCount = (data.livePhotos || []).length;
+      const liveSuffix = liveCount > 0 ? ` (gồm ${liveCount} ảnh Live 🎬)` : '';
+      mediaCountLabel.innerText = `Danh sách ảnh HD (${data.images.length} ảnh${liveSuffix})`;
       videoPreviewWrapper.classList.add('hidden');
       imageGrid.parentElement.classList.remove('hidden');
 
@@ -508,22 +551,40 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
 
         let hasRetried = false;
         img.onerror = () => {
+          logPopup(`⚠️ Thẻ <img> tải trực tiếp thất bại cho ảnh #${idx + 1}: ${imgUrl}`);
           if (!hasRetried) {
             hasRetried = true;
+            logPopup(`Đang gọi Background Service Worker nạp base64 cho ảnh #${idx + 1}...`);
             chrome.runtime.sendMessage({ type: 'FETCH_IMAGE_BASE64', url: imgUrl }, (res) => {
               if (res && res.success && res.base64) {
+                logPopup(`✅ Background fetch thành công ảnh #${idx + 1} (${res.size} bytes)`);
                 img.src = `data:${res.type || 'image/jpeg'};base64,${res.base64}`;
                 img.style.opacity = '1';
+                delete img.dataset.error;
+                item.title = `Ảnh #${idx + 1} (Đã nạp sạch qua Service Worker)`;
               } else {
+                const errReason = res?.error || 'Lỗi tải không xác định';
+                logPopup(`❌ Background fetch thất bại ảnh #${idx + 1}: ${errReason}`);
                 img.style.opacity = '0.3';
-                img.alt = '⚠ Lỗi tải';
+                img.alt = '⚠ Lỗi tải (Click xem log)';
+                img.dataset.error = errReason;
+                item.title = `Click vào ảnh để xem chi tiết lỗi: ${errReason}`;
+                item.style.cursor = 'pointer';
               }
             });
           } else {
             img.style.opacity = '0.3';
-            img.alt = '⚠ Lỗi tải';
+            img.alt = '⚠ Lỗi tải (Click xem log)';
           }
         };
+
+        // Click on failed image to inspect details
+        item.addEventListener('click', (e) => {
+          if (e.target.type === 'checkbox') return;
+          if (img.dataset.error) {
+            openLogModalWithHighlight(`Chi tiết ảnh #${idx + 1} tải lỗi:\n• URL: ${imgUrl}\n• Lỗi: ${img.dataset.error}`);
+          }
+        });
 
         const chk = document.createElement('input');
         chk.type = 'checkbox';
@@ -542,12 +603,40 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
             item.classList.remove('selected');
             selectedImageUrls = selectedImageUrls.filter(u => u !== imgUrl);
           }
-          mediaCountLabel.innerText = `Danh sách ảnh HD (Đã chọn ${selectedImageUrls.length}/${data.images.length})`;
+          const curLiveSuffix = liveCount > 0 ? ` (gồm ${liveCount} ảnh Live 🎬)` : '';
+          mediaCountLabel.innerText = `Danh sách ảnh HD (Đã chọn ${selectedImageUrls.length}/${data.images.length}${curLiveSuffix})`;
         });
 
         item.appendChild(img);
         item.appendChild(chk);
         item.appendChild(badge);
+
+        // Check if this image is a Live Photo with motion video clip
+        const liveInfo = (data.livePhotos || []).find(lp => lp.imageUrl === imgUrl || lp.index === idx);
+        if (liveInfo && liveInfo.videoUrl) {
+          const liveBadge = document.createElement('span');
+          liveBadge.className = 'live-photo-badge';
+          liveBadge.innerHTML = '🎬 LIVE';
+          liveBadge.title = 'Ảnh Live Photo. Bấm để tải video chuyển động (.mp4)';
+          liveBadge.addEventListener('click', (e) => {
+            e.stopPropagation();
+            liveBadge.innerText = '⏳ Tải...';
+            chrome.runtime.sendMessage({
+              type: 'DOWNLOAD_IMAGE',
+              url: liveInfo.videoUrl,
+              filename: `rednote_live_${idx + 1}.mp4`
+            }, (res) => {
+              liveBadge.innerHTML = '🎬 LIVE';
+              if (res && res.success) {
+                showStatus(`🎉 Đang tải video Live Photo #${idx + 1} (.mp4) về máy!`);
+              } else {
+                alert('Không thể tải video Live Photo: ' + (res?.error || 'Lỗi kết nối'));
+              }
+            });
+          });
+          item.appendChild(liveBadge);
+        }
+
         imageGrid.appendChild(item);
       });
     } else if (data.videoUrl) {
@@ -1028,4 +1117,78 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
       btnSaveAndView.disabled = false;
     }
   });
+
+  // Diagnostic Log Viewer Modal Handlers
+  async function openLogModalWithHighlight(extraMsg = '') {
+    if (!modalLogViewer) return;
+    modalLogViewer.style.display = 'flex';
+    modalLogViewer.classList.remove('hidden');
+
+    let bgLogsText = '--- Đang lấy log từ Background Service Worker... ---';
+    try {
+      const res = await new Promise((resolve) => {
+        chrome.runtime.sendMessage({ type: 'GET_DIAGNOSTIC_LOGS' }, (r) => resolve(r));
+      });
+      if (res && res.success && Array.isArray(res.logs) && res.logs.length > 0) {
+        bgLogsText = res.logs.map(l => `[${l.time}][${l.tag}] ${l.message}`).join('\n');
+      } else {
+        bgLogsText = 'Chưa có nhật ký từ Background Service Worker (hoặc Worker vừa khởi động lại).';
+      }
+    } catch (e) {
+      bgLogsText = 'Lỗi kết nối Background Service Worker: ' + e.message;
+    }
+
+    const popupLogsText = (window.__POPUP_LOGS__ || []).join('\n');
+    let fullText = '';
+    if (extraMsg) {
+      fullText += `=== ⚠️ THÔNG TIN LỖI ẢNH ===\n${extraMsg}\n\n`;
+    }
+    fullText += `=== 📱 NHẬT KÝ POPUP ===\n${popupLogsText || 'Chưa có log từ Popup'}\n\n`;
+    fullText += `=== ⚙️ NHẬT KÝ SERVICE WORKER ===\n${bgLogsText}`;
+
+    if (logViewerContent) {
+      logViewerContent.value = fullText;
+      logViewerContent.scrollTop = 0;
+    }
+  }
+
+  if (btnViewLogs) {
+    btnViewLogs.addEventListener('click', () => openLogModalWithHighlight());
+  }
+
+  if (btnCloseLogModal) {
+    btnCloseLogModal.addEventListener('click', () => {
+      modalLogViewer.style.display = 'none';
+      modalLogViewer.classList.add('hidden');
+    });
+  }
+
+  if (modalLogViewer) {
+    modalLogViewer.addEventListener('click', (e) => {
+      if (e.target === modalLogViewer) {
+        modalLogViewer.style.display = 'none';
+        modalLogViewer.classList.add('hidden');
+      }
+    });
+  }
+
+  if (btnCopyDebugLogs) {
+    btnCopyDebugLogs.addEventListener('click', () => {
+      if (logViewerContent) {
+        navigator.clipboard.writeText(logViewerContent.value).then(() => {
+          btnCopyDebugLogs.innerText = '✅ Đã copy!';
+          setTimeout(() => { btnCopyDebugLogs.innerText = '📋 Sao chép Log'; }, 2000);
+        });
+      }
+    });
+  }
+
+  if (btnClearDebugLogs) {
+    btnClearDebugLogs.addEventListener('click', () => {
+      window.__POPUP_LOGS__ = [];
+      chrome.runtime.sendMessage({ type: 'CLEAR_DIAGNOSTIC_LOGS' }, () => {
+        if (logViewerContent) logViewerContent.value = 'Đã xóa toàn bộ nhật ký.';
+      });
+    });
+  }
 });
