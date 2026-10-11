@@ -6,3 +6,4 @@ Thumbs.db
 cloudflare-worker/wrangler.toml
 cloudflare-worker/.dev.vars*
 cloudflare-worker/.wrangler/
+scratch/

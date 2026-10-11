@@ -1069,6 +1069,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     closeImageContextMenu();
 
     if (action === 'copy-folder') {
+      if (!selectedGlobalKeys.size) {
+        if (globalKey) selectedGlobalKeys.add(globalKey);
+        else if (imageIndex !== null && activePost?.id) selectedGlobalKeys.add(`${activePost.id}__${imageIndex}`);
+      }
       await copySelectedImagesToNewFolder();
       return;
     }
@@ -1174,7 +1178,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     btnRotateRightImages.disabled = !hasPostSelection;
     if (btnCopySelectedToFolder) {
       btnCopySelectedToFolder.disabled = !hasAnySelection;
-      btnCopySelectedToFolder.innerText = hasAnySelection ? `📁 Copy ra thư mục mới (${totalCount})` : '📁 Copy ra thư mục mới';
+      btnCopySelectedToFolder.innerText = hasAnySelection ? `⚡ Xuất folder ảnh tạm (${totalCount})` : '⚡ Xuất folder ảnh tạm';
     }
     if (btnOpenFolderLocation) btnOpenFolderLocation.disabled = !hasAnySelection;
     btnOptimizeSelectedImages.disabled = !hasPostSelection;
@@ -2253,7 +2257,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (btnGlobalBatchRotRight) btnGlobalBatchRotRight.disabled = count === 0;
     if (btnGlobalBatchCopyToFolder) {
       btnGlobalBatchCopyToFolder.disabled = count === 0;
-      btnGlobalBatchCopyToFolder.innerText = count ? `📁 Copy ra thư mục mới (${count})` : '📁 Copy ra thư mục mới';
+      btnGlobalBatchCopyToFolder.innerText = count ? `⚡ Xuất folder ảnh tạm (${count})` : '⚡ Xuất folder ảnh tạm';
     }
     if (btnGlobalBatchOpenLocation) btnGlobalBatchOpenLocation.disabled = count === 0;
     if (btnGlobalBatchZip) btnGlobalBatchZip.disabled = count === 0;
@@ -2472,8 +2476,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Batch ZIP Download
   btnGlobalBatchZip?.addEventListener('click', exportSelectedPhotosZip);
 
-  // ===== GOM VÀ COPY TOÀN BỘ ẢNH ĐÃ CHỌN RA 1 THƯ MỤC MỚI =====
-  async function copySelectedImagesToNewFolder() {
+  // ===== GOM VÀ COPY TOÀN BỘ ẢNH ĐÃ CHỌN RA THƯ MỤC TẠM THỜI =====
+  async function copySelectedImagesToNewFolder(e) {
+    // Nếu chưa chọn trong giỏ toàn cục nhưng có chọn trong bài viết hiện tại
+    if (!selectedGlobalKeys.size && activePost?.id) {
+      const activeIndexes = getSelectedImageIndexes();
+      if (activeIndexes.length) {
+        activeIndexes.forEach(idx => selectedGlobalKeys.add(`${activePost.id}__${idx}`));
+      }
+    }
+
     if (!selectedGlobalKeys.size) {
       showToast('⚠️ Bạn chưa chọn ảnh nào để copy.');
       return;
@@ -2489,7 +2501,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     for (const key of selectedKeys) {
       const [postId, idxStr] = key.split('__');
       const idx = Number(idxStr);
-      const postSummary = allPosts.find(p => p.id === postId);
+      const postSummary = allPosts.find(p => p.id === postId) || (activePost?.id === postId ? activePost : null);
       if (postSummary && postSummary.images && postSummary.images[idx]) {
         affectedPostIds.add(postId);
         itemsToCopy.push({
@@ -2507,150 +2519,18 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
-    const now = new Date();
-    const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
-    const initialName = customBasketFolderName || (basketFolderCustomInput ? basketFolderCustomInput.value.trim() : '') || `Douyin_Gom_${totalCount}anh_${dateStr}`;
-    const defaultFolderName = sanitizeImageFilename(initialName) || `Douyin_Gom_${totalCount}anh_${dateStr}`;
+    // Mặc định xuất thẳng vào "folder anh tam thoi" (không hỏi prompt phiền phức)
+    let targetFolderName = 'folder anh tam thoi';
 
-    // 1. Ưu tiên File System Access API: Chọn hoặc tạo thư mục trực tiếp trên máy tính
-    if (window.showDirectoryPicker) {
-      try {
-        let parentDirHandle = null;
-        try {
-          parentDirHandle = await window.showDirectoryPicker({
-            mode: 'readwrite',
-            startIn: 'pictures'
-          });
-        } catch (pickerErr) {
-          if (pickerErr.name === 'AbortError') return; // Người dùng ấn Cancel / Hủy chọn thư mục
-          throw pickerErr;
-        }
-
-        if (parentDirHandle) {
-          const promptMsg = `Bạn đã chọn thư mục: "${parentDirHandle.name}"\n\nNhập tên thư mục con muốn tạo để lưu ${totalCount} ảnh (hoặc để trống nếu muốn lưu thẳng vào "${parentDirHandle.name}"):`;
-          const subfolderInput = prompt(promptMsg, defaultFolderName);
-          if (subfolderInput === null) return; // Người dùng hủy prompt
-
-          let targetDir = parentDirHandle;
-          const subfolderName = subfolderInput.trim();
-          if (subfolderName) {
-            customBasketFolderName = subfolderName;
-            if (basketFolderCustomInput) basketFolderCustomInput.value = subfolderName;
-            targetDir = await parentDirHandle.getDirectoryHandle(subfolderName, { create: true });
-          }
-
-          // Nạp cache dữ liệu gốc từ IndexedDB
-          const fullPostCache = new Map();
-          for (const pid of affectedPostIds) {
-            const full = await DouyinDB.getPost(pid);
-            if (full) fullPostCache.set(pid, full);
-          }
-
-          const usedFilenames = new Set();
-          const exportLog = [];
-
-          showToast(`📁 Bắt đầu copy ${totalCount} ảnh vào "${targetDir.name}"...`);
-
-          for (let i = 0; i < itemsToCopy.length; i++) {
-            const item = itemsToCopy[i];
-            const fullPost = fullPostCache.get(item.postId) || item.postSummary;
-            const fullImg = fullPost?.images?.[item.imageIndex];
-            const dataUrl = fullImg?.dataUrl || item.imageSummary.thumbnailDataUrl;
-
-            if (!dataUrl) {
-              console.warn('Không có dữ liệu ảnh:', item);
-              continue;
-            }
-
-            let originalName = item.imageSummary.filename || fullImg?.filename || `photo_${item.imageIndex + 1}.jpg`;
-            originalName = originalName.replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_');
-
-            let ext = '.jpg';
-            let nameWithoutExt = originalName;
-            const dotIdx = originalName.lastIndexOf('.');
-            if (dotIdx !== -1) {
-              ext = originalName.slice(dotIdx);
-              nameWithoutExt = originalName.slice(0, dotIdx);
-            }
-
-            let candidateName = originalName;
-            if (usedFilenames.has(candidateName)) {
-              const authorSafe = (item.postSummary.author || 'douyin').replace(/[<>:"/\\|?*\u0000-\u001F\s]/g, '_');
-              candidateName = `${authorSafe}_${nameWithoutExt}${ext}`;
-            }
-
-            let counter = 2;
-            while (usedFilenames.has(candidateName)) {
-              candidateName = `${nameWithoutExt}_${counter}${ext}`;
-              counter++;
-            }
-            usedFilenames.add(candidateName);
-
-            showToast(`📁 Đang copy (${i + 1}/${totalCount}): ${candidateName}`);
-
-            const blobRes = await fetch(dataUrl);
-            const blob = await blobRes.blob();
-
-            const fileHandle = await targetDir.getFileHandle(candidateName, { create: true });
-            const writable = await fileHandle.createWritable();
-            await writable.write(blob);
-            await writable.close();
-
-            exportLog.push({
-              filename: candidateName,
-              originalName,
-              author: item.postSummary.author,
-              province: item.postSummary.province || '',
-              tags: item.imageSummary.tags || fullImg?.tags || [],
-              sourceUrl: item.postSummary.sourceUrl || item.postSummary.url || '',
-              captionFb: item.postSummary.englishCaption || '',
-              captionZh: item.postSummary.desc || ''
-            });
-          }
-
-          // Tạo file tổng hợp thông tin bài viết và nguồn ảnh
-          try {
-            const logContent = [
-              '========================================================================',
-              `  DANH SÁCH ${itemsToCopy.length} ẢNH ĐÃ GOM VÀ COPY TỪ ${affectedPostIds.size} BÀI VIẾT / FOLDER KHÁC NHAU`,
-              `  Thời gian xuất: ${new Date().toLocaleString('vi-VN')}`,
-              `  Thư mục lưu: ${targetDir.name}`,
-              '========================================================================',
-              '',
-              ...exportLog.map((log, idx) => [
-                `[Ảnh ${idx + 1}] ${log.filename}`,
-                `  • Tác giả: @${log.author || 'N/A'}`,
-                `  • Tỉnh thành: ${log.province || 'Chưa gắn'}`,
-                `  • Tags: ${(log.tags || []).map(t => '#' + t).join(' ') || 'Không có'}`,
-                `  • Link gốc: ${log.sourceUrl || 'N/A'}`,
-                `  • Caption FB: ${(log.captionFb || '').slice(0, 150)}${(log.captionFb || '').length > 150 ? '...' : ''}`,
-                `  • Caption gốc: ${(log.captionZh || '').slice(0, 150)}${(log.captionZh || '').length > 150 ? '...' : ''}`,
-                ''
-              ].join('\n'))
-            ].join('\n');
-
-            const logHandle = await targetDir.getFileHandle('thong_tin_anh_da_copy.txt', { create: true });
-            const logWritable = await logHandle.createWritable();
-            await logWritable.write(logContent);
-            await logWritable.close();
-          } catch (logErr) {
-            console.warn('Không thể ghi file thong_tin_anh_da_copy.txt:', logErr);
-          }
-
-          showToast(`🎉 Thành công! Đã copy ${totalCount} ảnh vào thư mục "${targetDir.name}"!`);
-          return;
-        }
-      } catch (fsErr) {
-        console.warn('File System Access API failed or cancelled:', fsErr);
-        if (fsErr.name === 'AbortError') return;
-      }
+    // Nếu người dùng giữ Shift khi bấm thì mới hiện prompt tùy chỉnh tên khác
+    if (e && e.shiftKey) {
+      const customInput = prompt('Nhập tên thư mục tạm muốn xuất ảnh:', targetFolderName);
+      if (customInput === null) return;
+      if (customInput.trim()) targetFolderName = customInput.trim();
     }
+    const cleanFolderName = targetFolderName.replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_');
 
-    // 2. Dự phòng: Tải qua chrome.downloads gom vào thư mục con trong Downloads
-    const folderNameInput = prompt(`Nhập tên thư mục mới để lưu ${totalCount} ảnh (sẽ nằm trong thư mục Tải về / Downloads của máy):`, defaultFolderName);
-    if (!folderNameInput) return;
-    const cleanFolderName = folderNameInput.trim().replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_');
-
+    // Nạp cache dữ liệu gốc từ IndexedDB
     const fullPostCache = new Map();
     for (const pid of affectedPostIds) {
       const full = await DouyinDB.getPost(pid);
@@ -2658,9 +2538,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     const usedFilenames = new Set();
+    const exportLog = [];
     let firstDownloadId = null;
 
-    showToast(`📁 Đang tải ${totalCount} ảnh vào thư mục Downloads/${cleanFolderName}...`);
+    showToast(`⚡ Đang xuất ${totalCount} ảnh vào "${cleanFolderName}"...`);
 
     for (let i = 0; i < itemsToCopy.length; i++) {
       const item = itemsToCopy[i];
@@ -2692,8 +2573,16 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
       usedFilenames.add(candidateName);
 
-      const blobRes = await fetch(dataUrl);
-      const blob = await blobRes.blob();
+      showToast(`⚡ Đang copy (${i + 1}/${totalCount}): ${candidateName}`);
+
+      let blob;
+      if (dataUrl.startsWith('data:')) {
+        const blobRes = await fetch(dataUrl);
+        blob = await blobRes.blob();
+      } else {
+        const blobRes = await fetch(dataUrl);
+        blob = await blobRes.blob();
+      }
       const objUrl = URL.createObjectURL(blob);
 
       const dlId = await new Promise((resolve) => {
@@ -2709,13 +2598,60 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
 
       if (!firstDownloadId && dlId) firstDownloadId = dlId;
+
+      exportLog.push({
+        filename: candidateName,
+        originalName,
+        author: item.postSummary.author,
+        province: item.postSummary.province || '',
+        tags: item.imageSummary.tags || fullImg?.tags || [],
+        sourceUrl: item.postSummary.sourceUrl || item.postSummary.url || '',
+        captionFb: item.postSummary.englishCaption || '',
+        captionZh: item.postSummary.desc || ''
+      });
     }
 
+    // Tạo file tóm tắt thông tin nguồn & caption lưu cùng vào folder để tiện xử lý tiếp
+    try {
+      const logContent = [
+        '========================================================================',
+        `  DANH SÁCH ${itemsToCopy.length} ẢNH TRONG THƯ MỤC TẠM THỜI (${cleanFolderName})`,
+        `  Thời gian xuất: ${new Date().toLocaleString('vi-VN')}`,
+        '========================================================================',
+        '',
+        ...exportLog.map((log, idx) => [
+          `[Ảnh ${idx + 1}] ${log.filename}`,
+          `  • Tác giả: @${log.author || 'N/A'}`,
+          `  • Tỉnh thành: ${log.province || 'Chưa gắn'}`,
+          `  • Tags: ${(log.tags || []).map(t => '#' + t).join(' ') || 'Không có'}`,
+          `  • Link gốc: ${log.sourceUrl || 'N/A'}`,
+          `  • Caption FB: ${(log.captionFb || '').slice(0, 200)}`,
+          `  • Caption gốc: ${(log.captionZh || '').slice(0, 200)}`,
+          ''
+        ].join('\n'))
+      ].join('\n');
+
+      const textBlob = new Blob([logContent], { type: 'text/plain;charset=utf-8' });
+      const textUrl = URL.createObjectURL(textBlob);
+      chrome.downloads.download({
+        url: textUrl,
+        filename: `${cleanFolderName}/thong_tin_anh.txt`,
+        saveAs: false,
+        conflictAction: 'overwrite'
+      }, () => {
+        setTimeout(() => URL.revokeObjectURL(textUrl), 5000);
+      });
+    } catch (txtErr) {
+      console.warn('Lỗi ghi file thong_tin_anh.txt:', txtErr);
+    }
+
+    // Mở ngay cửa sổ thư mục Windows Explorer để người dùng xử lý tiếp
     if (firstDownloadId && chrome?.downloads?.show) {
       await waitForDownloadComplete(firstDownloadId);
       chrome.downloads.show(firstDownloadId);
     }
-    showToast(`🎉 Đã tải xong ${totalCount} ảnh vào thư mục Downloads/${cleanFolderName}!`);
+
+    showToast(`🎉 Đã copy xong ${totalCount} ảnh vào "${cleanFolderName}" và mở thư mục!`);
   }
 
   // ===== TẢI ZIP TỔNG HỢP TOÀN BỘ ẢNH ĐÃ CHỌN =====
