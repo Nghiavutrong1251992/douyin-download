@@ -39,6 +39,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const fbCharCount = document.getElementById('fb-char-count');
   const btnCopyFb = document.getElementById('btn-copy-fb');
   const btnCopyZh = document.getElementById('btn-copy-zh');
+  const btnStripHashtagsFb = document.getElementById('btn-strip-hashtags-fb');
+  const btnStripHashtagsZh = document.getElementById('btn-strip-hashtags-zh');
 
   const viewImageGrid = document.getElementById('view-image-grid');
   const btnDownloadAllJpg = document.getElementById('btn-download-all-jpg');
@@ -53,6 +55,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const btnRenameSelectedImages = document.getElementById('btn-rename-selected-images');
   const btnRotateLeftImages = document.getElementById('btn-rotate-left-images');
   const btnRotateRightImages = document.getElementById('btn-rotate-right-images');
+  const btnCropWatermarkImages = document.getElementById('btn-crop-watermark-images');
   const btnCopySelectedToFolder = document.getElementById('btn-copy-selected-to-folder');
   const btnOpenFolderLocation = document.getElementById('btn-open-folder-location');
   const btnOptimizeSelectedImages = document.getElementById('btn-optimize-selected-images');
@@ -345,7 +348,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderSidebarList();
 
     // Fill header
-    viewAuthor.innerText = post.author ? `@${post.author}` : 'Tác giả Douyin';
+    viewAuthor.innerText = post.author ? `@${post.author}` : (post.platform === 'weibo' ? 'Tác giả Weibo' : (post.platform === 'vk' ? 'Tác giả VK' : (post.platform === 'rednote' ? 'Tác giả RedNote' : 'Tác giả Douyin')));
     viewAvatar.src = post.avatar || '../icons/icon48.png';
     viewTime.innerText = `📅 Ngày tác giả đăng: ${formatPublishedDate(post)}${post.publishDateManual ? ' (thủ công)' : ''}`;
     viewImgCount.innerText = `🖼️ ${(post.images || []).length} ảnh JPG`;
@@ -360,6 +363,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         viewOriginLink.innerText = '🔗 Xem link RedNote gốc';
       } else if (srcUrl.includes('vk.com') || srcUrl.includes('vk.ru')) {
         viewOriginLink.innerText = '🔗 Xem link VK gốc';
+      } else if (srcUrl.includes('weibo.com') || srcUrl.includes('weibo.cn') || srcUrl.includes('sinaimg') || srcUrl.includes('t.cn')) {
+        viewOriginLink.innerText = '🔗 Xem link Weibo gốc';
       } else {
         viewOriginLink.innerText = '🔗 Xem link Douyin gốc';
       }
@@ -404,6 +409,67 @@ document.addEventListener('DOMContentLoaded', async () => {
       activePost.englishCaption = viewEngCaption.value;
       DouyinDB.savePost(activePost);
     }
+  });
+
+  viewZhCaption.addEventListener('input', () => {
+    if (activePost) {
+      activePost.desc = viewZhCaption.value;
+      DouyinDB.savePost(activePost);
+    }
+  });
+
+  // Helper: Strip Hashtags & Weibo traces in Studio
+  function stripHashtags(text) {
+    if (!text || typeof text !== 'string') return '';
+    let cleaned = text;
+    cleaned = cleaned.replace(/#[^#\r\n]{1,80}#/g, ' ');
+    cleaned = cleaned.replace(/#[a-zA-Z0-9_\u4e00-\u9fa5\p{L}\p{N}_-]+/gu, ' ');
+    cleaned = cleaned.replace(/\[[\u4e00-\u9fa5a-zA-Z0-9_]{1,15}\]/g, '');
+    cleaned = cleaned.replace(/@[\u4e00-\u9fa5a-zA-Z0-9_-]{1,30}/g, '');
+    cleaned = cleaned.replace(/L.*?的微博视频/g, '');
+    cleaned = cleaned.replace(/.*?的微博视频/g, '');
+    cleaned = cleaned.replace(/微博视频/g, '');
+    cleaned = cleaned
+      .replace(/https?:\/\/t\.cn\/[a-zA-Z0-9]+/g, '')
+      .replace(/O网页链接/g, '')
+      .replace(/网页链接/g, '')
+      .replace(/【[^】]{1,80}超话】/g, '')
+      .replace(/\s*…?\s*全文\s*$/g, '')
+      .replace(/[ \t]+/g, ' ')
+      .replace(/\n\s*\n/g, '\n\n')
+      .trim();
+    return cleaned;
+  }
+
+  btnCopyFb?.addEventListener('click', () => {
+    navigator.clipboard.writeText(viewEngCaption.value);
+    showToast('📋 Đã sao chép bài đăng Facebook vào bộ nhớ tạm!');
+  });
+
+  btnCopyZh?.addEventListener('click', () => {
+    navigator.clipboard.writeText(viewZhCaption.value);
+    showToast('📋 Đã sao chép caption gốc vào bộ nhớ tạm!');
+  });
+
+  btnStripHashtagsFb?.addEventListener('click', () => {
+    const cleaned = stripHashtags(viewEngCaption.value);
+    viewEngCaption.value = cleaned;
+    updateCharCount();
+    if (activePost) {
+      activePost.englishCaption = cleaned;
+      DouyinDB.savePost(activePost);
+    }
+    showToast('🏷️ Đã xóa toàn bộ hashtag khỏi bài Facebook!');
+  });
+
+  btnStripHashtagsZh?.addEventListener('click', () => {
+    const cleaned = stripHashtags(viewZhCaption.value);
+    viewZhCaption.value = cleaned;
+    if (activePost) {
+      activePost.desc = cleaned;
+      DouyinDB.savePost(activePost);
+    }
+    showToast('🏷️ Đã xóa toàn bộ hashtag khỏi caption gốc!');
   });
 
   viewInternalNotes.addEventListener('input', () => {
@@ -737,6 +803,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   btnRotateLeftImages.addEventListener('click', () => rotateSelectedImages(-90));
   btnRotateRightImages.addEventListener('click', () => rotateSelectedImages(90));
+  btnCropWatermarkImages?.addEventListener('click', cropSelectedImagesBottom);
   btnOpenFolderLocation?.addEventListener('click', openSelectedImagesInFolder);
 
   function getDownloadPathForImage(imageInfo, post, fallbackIndex = 0) {
@@ -939,6 +1006,36 @@ document.addEventListener('DOMContentLoaded', async () => {
       showToast(`✅ Đã xoay ${indexes.length} ảnh ${degrees < 0 ? 'sang trái' : 'sang phải'}`);
     } catch (error) {
       showToast(`❌ Không thể xoay ảnh: ${error.message}`);
+    } finally {
+      updateImageSelectionToolbar();
+    }
+  }
+
+  async function cropSelectedImagesBottom() {
+    const indexes = getSelectedImageIndexes();
+    if (!indexes.length) return;
+    const input = prompt('✂️ Cắt mép dưới ảnh để xóa triệt để logo/ID Weibo.\nNhập % chiều cao muốn cắt mép dưới (khuyên dùng 4% - 6%):', '5');
+    if (input === null) return;
+    const percent = parseFloat(input);
+    if (isNaN(percent) || percent <= 0 || percent >= 50) {
+      alert('Vui lòng nhập số % hợp lệ từ 1 đến 50.');
+      return;
+    }
+    if (btnCropWatermarkImages) btnCropWatermarkImages.disabled = true;
+    try {
+      for (let position = 0; position < indexes.length; position++) {
+        showToast(`Đang cắt watermark ảnh ${position + 1}/${indexes.length}...`);
+        const image = activePost.images[indexes[position]];
+        image.dataUrl = await cropBottomImageDataUrl(image.dataUrl, percent, 0.96);
+        image.thumbnailDataUrl = await createPreviewImage(image.dataUrl, 0.68, 480);
+      }
+      activePost.thumbUrl = activePost.images[0]?.thumbnailDataUrl || activePost.images[0]?.dataUrl || '';
+      await DouyinDB.savePost(activePost);
+      renderImagesGrid(activePost.images);
+      renderSidebarList();
+      showToast(`✂️ Đã cắt ${percent}% mép dưới cho ${indexes.length} ảnh (xóa sạch watermark)`);
+    } catch (error) {
+      showToast(`❌ Không thể cắt watermark: ${error.message}`);
     } finally {
       updateImageSelectionToolbar();
     }
@@ -1176,6 +1273,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     btnRenameSelectedImages.disabled = !hasPostSelection;
     btnRotateLeftImages.disabled = !hasPostSelection;
     btnRotateRightImages.disabled = !hasPostSelection;
+    if (btnCropWatermarkImages) btnCropWatermarkImages.disabled = !hasPostSelection;
     if (btnCopySelectedToFolder) {
       btnCopySelectedToFolder.disabled = !hasAnySelection;
       btnCopySelectedToFolder.innerText = hasAnySelection ? `⚡ Xuất folder ảnh tạm (${totalCount})` : '⚡ Xuất folder ảnh tạm';
@@ -1242,6 +1340,31 @@ document.addEventListener('DOMContentLoaded', async () => {
     context.drawImage(image, -image.naturalWidth / 2, -image.naturalHeight / 2);
     const blob = await new Promise((resolve, reject) => {
       canvas.toBlob(result => result ? resolve(result) : reject(new Error('Không thể xuất ảnh đã xoay')), 'image/jpeg', quality);
+    });
+    canvas.width = 0;
+    canvas.height = 0;
+    image.src = '';
+    return blobToDataUrlForViewer(blob);
+  }
+
+  async function cropBottomImageDataUrl(dataUrl, percent, quality = 0.96) {
+    const image = new Image();
+    image.src = dataUrl;
+    await new Promise((resolve, reject) => {
+      image.onload = resolve;
+      image.onerror = () => reject(new Error('Không đọc được dữ liệu ảnh'));
+    });
+    const cropFraction = Math.max(0.01, Math.min(0.5, percent / 100));
+    const newHeight = Math.max(1, Math.round(image.naturalHeight * (1 - cropFraction)));
+    const canvas = document.createElement('canvas');
+    canvas.width = image.naturalWidth;
+    canvas.height = newHeight;
+    const context = canvas.getContext('2d', { alpha: false });
+    context.fillStyle = '#fff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, image.naturalWidth, newHeight, 0, 0, canvas.width, newHeight);
+    const blob = await new Promise((resolve, reject) => {
+      canvas.toBlob(result => result ? resolve(result) : reject(new Error('Không thể xuất ảnh sau khi cắt')), 'image/jpeg', quality);
     });
     canvas.width = 0;
     canvas.height = 0;

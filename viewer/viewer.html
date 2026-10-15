@@ -160,10 +160,15 @@
                     <span class="badge badge-fb">Bài đăng Facebook (Tiếng Anh - DeepSeek AI)</span>
                     <span id="fb-char-count" class="char-count">0 ký tự</span>
                   </div>
-                  <button id="btn-copy-fb" class="btn btn-primary-blue">
-                    <svg viewBox="0 0 24 24" class="btn-icon"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
-                    <span>📋 Copy bài đăng Facebook</span>
-                  </button>
+                  <div style="display:flex;gap:6px;">
+                    <button id="btn-strip-hashtags-fb" class="btn btn-secondary-copy" title="Xóa toàn bộ hashtag (#tag) khỏi bài Facebook">
+                      <span>🏷️ Xóa hashtag</span>
+                    </button>
+                    <button id="btn-copy-fb" class="btn btn-primary-blue">
+                      <svg viewBox="0 0 24 24" class="btn-icon"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+                      <span>📋 Copy bài đăng Facebook</span>
+                    </button>
+                  </div>
                 </div>
                 <textarea id="view-eng-caption" class="caption-editor" rows="8" placeholder="Nội dung bài đăng tiếng Anh... Bạn có thể chỉnh sửa tự do tại đây."></textarea>
               </div>
@@ -171,12 +176,17 @@
               <!-- Chinese Caption -->
               <div class="card caption-card">
                 <div class="card-head">
-                  <span class="badge badge-zh">Caption gốc (Tiếng Trung)</span>
-                  <button id="btn-copy-zh" class="btn btn-secondary-copy">
-                    <span>Copy gốc</span>
-                  </button>
+                  <span class="badge badge-zh">Caption gốc</span>
+                  <div style="display:flex;gap:6px;">
+                    <button id="btn-strip-hashtags-zh" class="btn btn-secondary-copy" title="Xóa toàn bộ hashtag (#...# hoặc #tag) khỏi caption gốc">
+                      <span>🏷️ Xóa hashtag</span>
+                    </button>
+                    <button id="btn-copy-zh" class="btn btn-secondary-copy">
+                      <span>Copy gốc</span>
+                    </button>
+                  </div>
                 </div>
-                <textarea id="view-zh-caption" class="caption-editor readonly" rows="8" readonly></textarea>
+                <textarea id="view-zh-caption" class="caption-editor" rows="8"></textarea>
                 <label for="view-internal-notes" class="notes-label">Ghi chú nội bộ</label>
                 <textarea id="view-internal-notes" class="caption-editor notes-editor" rows="3" placeholder="Ghi chú để phân loại hoặc xử lý sau... Ghi chú này không được đưa vào bài Facebook."></textarea>
               </div>
@@ -208,6 +218,7 @@
                 <button id="btn-rename-selected-images" class="btn-compact btn-compact-primary" disabled>✎ Đổi tên</button>
                 <button id="btn-rotate-left-images" class="btn-compact btn-compact-primary" disabled>↶ Xoay trái</button>
                 <button id="btn-rotate-right-images" class="btn-compact btn-compact-primary" disabled>↷ Xoay phải</button>
+                <button id="btn-crop-watermark-images" class="btn-compact btn-compact-primary" disabled title="Cắt bỏ viền mép dưới ảnh nơi chứa logo và ID tài khoản Weibo">✂️ Cắt watermark mép dưới</button>
                 <button id="btn-copy-selected-to-folder" class="btn-compact btn-compact-emerald" disabled title="Mặc định copy nhanh tất cả ảnh đã chọn ra 'folder anh tam thoi' và tự động mở thư mục Explorer để xử lý tiếp">⚡ Xuất ra folder ảnh tạm thời</button>
                 <button id="btn-open-folder-location" class="btn-compact btn-compact-primary" disabled title="Mở vị trí ảnh đã chọn trong thư mục máy tính">📂 Mở vị trí file</button>
                 <button id="btn-optimize-selected-images" class="btn-compact btn-compact-primary" disabled>◫ Tạo ảnh xem nhẹ</button>

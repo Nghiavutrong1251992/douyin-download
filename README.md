@@ -1,11 +1,13 @@
-# 🚀 Douyin & RedNote to Facebook Auto-Pilot (Chrome Extension)
+# 🚀 Douyin, RedNote & Weibo to Facebook Auto-Pilot (Chrome Extension)
 
-Tiện ích mở rộng Chrome / Microsoft Edge giúp bóc tách toàn bộ ảnh HD không watermark, caption từ **Douyin**, **VKontakte** và **RedNote (Xiaohongshu - 小红书)**, tự động dịch và viết lại sang tiếng Anh chuẩn phong cách bài đăng Facebook bằng **DeepSeek AI**.
+Tiện ích mở rộng Chrome / Microsoft Edge giúp bóc tách toàn bộ ảnh HD không watermark, caption từ **Douyin**, **VKontakte**, **RedNote (Xiaohongshu - 小红书)** và **Weibo (微博)**, tự động lọc sạch hashtag và viết lại sang tiếng Anh chuẩn phong cách bài đăng Facebook bằng **DeepSeek AI**.
 
 ---
 
 ## 📌 Tính năng nổi bật
 1. **Bóc tách ảnh gốc Full HD không Watermark**:
+   - **Weibo (微博)**: Tự động trích xuất ảnh gốc HD cao nhất (`original` / `large` / `mw2000`) từ CDN Weibo (`sinaimg.cn`, `weibocdn.com`), kèm hỗ trợ Live Photo và video.
+   - **Tự động lọc & Xóa Hashtag**: Tự động nhận diện và xóa sạch các hashtag rác (`#chủ đề#`, `#tag`, liên kết rút gọn `t.cn`, v.v.) khỏi caption tiếng Trung và bài viết tiếng Anh. Có nút bấm 1 chạm **"🏷️ Xóa hashtag"** tiện lợi.
    - **Douyin**: Lấy toàn bộ ảnh gốc độ phân giải cao nhất từ CDN ByteDance.
    - **RedNote (Xiaohongshu)**: Tự động trích xuất ảnh gốc HD không dính watermark từ cụm CDN `sns-img-hw.xhscdn.com`, `sns-img-bd.xhscdn.com` và bóc tách video chuyển động Live Photo MP4.
    - **VKontakte**: Quét ảnh chất lượng cao nhất từng bài post riêng biệt.
@@ -15,12 +17,12 @@ Tiện ích mở rộng Chrome / Microsoft Edge giúp bóc tách toàn bộ ản
 3. **Giao diện Duyệt bài (Review Gallery)**:
    - Hiển thị danh sách ảnh kèm số thứ tự.
    - Cho phép chọn/bỏ chọn từng ảnh theo ý muốn.
-   - Cho phép chỉnh sửa trực tiếp nội dung bài dịch trước khi dùng.
+   - Cho phép chỉnh sửa trực tiếp nội dung bài dịch và caption trước khi dùng.
 4. **Đóng gói 1-Click**:
    - Tải về file `.zip` chứa toàn bộ ảnh đã chọn + file text `caption_facebook.txt`.
    - Nút copy nhanh bài đăng vào clipboard.
 5. **Nút bấm nổi thông minh On-Page Action**:
-   - Khi bạn lướt `douyin.com`, `vk.com`, hoặc `xiaohongshu.com` / `rednote.com`, góc phải dưới màn hình có sẵn nút *"Lấy bài sang FB"* (hoặc *"Lấy bài RedNote sang FB"*), bấm 1 cái là tự động đọc toàn bộ ảnh và caption của bài đang xem.
+   - Khi bạn lướt `douyin.com`, `vk.com`, `xiaohongshu.com` / `rednote.com`, hoặc `weibo.com` / `weibo.cn`, góc phải dưới màn hình có sẵn nút *"Lấy ảnh Weibo sang FB"* (hoặc *"Lấy bài sang FB"*), bấm 1 cái là tự động đọc toàn bộ ảnh và caption sạch đã loại bỏ hashtag của bài đang xem.
 6. **Phân loại ảnh và thư mục Offline**:
    - Gắn nhiều tag cho từng ảnh trong Offline Studio và tìm bài/ảnh lại theo tag.
    - Chọn thư mục thật trên máy trong tab **Cài đặt**. Extension tự tạo `Douyin_Offline`, mỗi bài có thư mục ảnh, caption và `metadata.json` chứa tag.

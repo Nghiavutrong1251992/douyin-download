@@ -79,7 +79,13 @@ async function fetchImageAsBlob(imageUrl) {
                 url.includes('xhslink.com') ||
                 url.includes('rednote.com');
 
-  addDiagLog('Fetch', `Bắt đầu nạp ảnh: ${url.substring(0, 75)} (Platform: ${isXhs ? 'RedNote' : isVk ? 'VK' : 'Douyin'})`);
+  const isWeibo = url.includes('sinaimg.cn') ||
+                  url.includes('weibocdn.com') ||
+                  url.includes('weibo.com') ||
+                  url.includes('weibo.cn');
+
+  const platformName = isXhs ? 'RedNote' : isVk ? 'VK' : isWeibo ? 'Weibo' : 'Douyin';
+  addDiagLog('Fetch', `Bắt đầu nạp ảnh: ${url.substring(0, 75)} (Platform: ${platformName})`);
 
   // Build list of candidate URLs
   const candidates = [];
@@ -102,6 +108,25 @@ async function fetchImageAsBlob(imageUrl) {
       if (!candidates.includes(bd)) candidates.push(bd);
       if (!candidates.includes(qc)) candidates.push(qc);
     }
+  } else if (isWeibo) {
+    // Check if sinaimg.cn or weibocdn.com with size directory: /size/pid.ext
+    const match = url.match(/(?:sinaimg\.cn|weibocdn\.com)\/([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_-]+(\.[a-zA-Z0-9]+)?)/i);
+    if (match) {
+      const hostMatch = url.match(/https?:\/\/([^/]+)/);
+      const host = hostMatch ? hostMatch[1] : 'wx1.sinaimg.cn';
+      const pid = match[2];
+      const originalCandidate = `https://${host}/original/${pid}`;
+      const largeCandidate = `https://${host}/large/${pid}`;
+      const mw2000Candidate = `https://${host}/mw2000/${pid}`;
+      const mw690Candidate = `https://${host}/mw690/${pid}`;
+      if (!candidates.includes(originalCandidate)) candidates.push(originalCandidate);
+      if (!candidates.includes(largeCandidate)) candidates.push(largeCandidate);
+      if (!candidates.includes(mw2000Candidate)) candidates.push(mw2000Candidate);
+      if (!candidates.includes(mw690Candidate)) candidates.push(mw690Candidate);
+      if (!candidates.includes(url)) candidates.push(url);
+    } else {
+      candidates.push(url);
+    }
   } else {
     candidates.push(url);
   }
@@ -117,11 +142,15 @@ async function fetchImageAsBlob(imageUrl) {
     const timeoutId = setTimeout(() => controller.abort(), 12000);
     try {
       addDiagLog('Fetch-Try', `Thử candidate #${i + 1}/${candidates.length}: ${targetUrl.substring(0, 65)}`);
+      const fetchHeaders = {
+        'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
+      };
+      if (isWeibo) {
+        fetchHeaders['Referer'] = 'https://weibo.com/';
+      }
       const response = await fetch(targetUrl, {
         method: 'GET',
-        headers: {
-          'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
-        },
+        headers: fetchHeaders,
         signal: controller.signal,
         credentials: 'omit'
       });
@@ -236,7 +265,7 @@ async function backgroundProcessAndSavePost(payload) {
   }
 
   const postId = payload.postId || mediaData.itemId || String(Date.now());
-  const authorName = mediaData.author || (mediaData.platform === 'vk' ? 'Tác giả VK' : (mediaData.platform === 'rednote' || mediaData.platform === 'xhs' ? 'Tác giả RedNote' : 'Tác giả Douyin'));
+  const authorName = mediaData.author || (mediaData.platform === 'vk' ? 'Tác giả VK' : (mediaData.platform === 'rednote' || mediaData.platform === 'xhs' ? 'Tác giả RedNote' : (mediaData.platform === 'weibo' ? 'Tác giả Weibo' : 'Tác giả Douyin')));
   const total = selectedUrls.length;
 
   let backgroundState = {
@@ -346,10 +375,11 @@ async function backgroundProcessAndSavePost(payload) {
   }).catch(() => {});
 
   if (chrome.notifications?.create) {
+    const platformLabel = mediaData.platform === 'weibo' ? 'Weibo' : (mediaData.platform === 'rednote' || mediaData.platform === 'xhs' ? 'RedNote' : (mediaData.platform === 'vk' ? 'VK' : 'Douyin'));
     chrome.notifications.create({
       type: 'basic',
       iconUrl: 'icons/icon128.png',
-      title: 'Tải ảnh Douyin hoàn tất!',
+      title: `Tải ảnh ${platformLabel} hoàn tất!`,
       message: `Đã tải xong ${cleanImages.length} ảnh của @${authorName}. Dữ liệu đã sẵn sàng trong Offline Studio!`
     });
   }
@@ -451,7 +481,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'DOWNLOAD_IMAGE') {
     const isVk = request.url && (request.url.includes('userapi.com') || request.url.includes('vk.com') || request.url.includes('vk.ru'));
     const isXhs = request.url && (request.url.includes('xhscdn.com') || request.url.includes('xiaohongshu.com') || request.url.includes('rednote.com') || request.url.includes('xhslink.com'));
-    const defaultFilename = isVk ? 'vk_photo.jpg' : (isXhs ? 'rednote_photo.jpg' : 'douyin_photo.jpg');
+    const isWeibo = request.url && (request.url.includes('sinaimg.cn') || request.url.includes('weibo.com') || request.url.includes('weibo.cn') || request.url.includes('weibocdn.com'));
+    const defaultFilename = isVk ? 'vk_photo.jpg' : (isXhs ? 'rednote_photo.jpg' : (isWeibo ? 'weibo_photo.jpg' : 'douyin_photo.jpg'));
     downloadImageFile(request.url, request.filename || defaultFilename)
       .then(id => sendResponse({ success: true, downloadId: id }))
       .catch(err => sendResponse({ success: false, error: err.message }));

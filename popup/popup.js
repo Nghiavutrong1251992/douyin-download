@@ -57,6 +57,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnDeepseekTranslate = document.getElementById('btn-deepseek-translate');
   const btnCopyOriginal = document.getElementById('btn-copy-original');
   const btnCopyEnglish = document.getElementById('btn-copy-english');
+  const btnStripHashtagsZh = document.getElementById('btn-strip-hashtags-zh');
+  const btnStripHashtagsEn = document.getElementById('btn-strip-hashtags-en');
 
   const btnSaveAndView = document.getElementById('btn-save-and-view');
   const btnOpenStudio = document.getElementById('btn-open-studio');
@@ -395,7 +397,7 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
     statusBar.classList.add('hidden');
   }
 
-  // ===== EXTRACT FROM ACTIVE TAB (DOUYIN / VK) =====
+  // ===== EXTRACT FROM ACTIVE TAB (DOUYIN / VK / REDNOTE / WEIBO) =====
   btnGrabActiveTab.addEventListener('click', () => {
     showStatus('Đang quét nội dung từ tab hiện tại...');
 
@@ -408,10 +410,14 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
         activeTab.url.includes('xhslink.com') ||
         activeTab.url.includes('rednote.com')
       );
+      const isWeibo = activeTab && activeTab.url && (
+        activeTab.url.includes('weibo.com') ||
+        activeTab.url.includes('weibo.cn')
+      );
 
-      if (!activeTab || (!isDouyin && !isVk && !isXhs)) {
+      if (!activeTab || (!isDouyin && !isVk && !isXhs && !isWeibo)) {
         hideStatus();
-        alert('Tab hiện tại không phải trang douyin.com, vk.com hoặc xiaohongshu.com / rednote.com.\nHãy mở bài viết trên Douyin, VK hoặc RedNote trước!');
+        alert('Tab hiện tại không phải trang douyin.com, vk.com, xiaohongshu.com / rednote.com hoặc weibo.com.\nHãy mở bài viết trên Douyin, VK, RedNote hoặc Weibo trước!');
         return;
       }
 
@@ -439,7 +445,7 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
   btnParseLink.addEventListener('click', () => {
     const input = douyinInput.value.trim();
     if (!input) {
-      alert('Vui lòng dán link bài viết Douyin, VK hoặc RedNote.');
+      alert('Vui lòng dán link bài viết Douyin, VK, RedNote hoặc Weibo.');
       return;
     }
 
@@ -492,14 +498,17 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
     // Author & metadata
     const isVk = data.platform === 'vk';
     const isXhs = data.platform === 'rednote' || data.platform === 'xhs';
-    const authorPrefix = isVk ? 'Tác giả VK: ' : (isXhs ? 'Tác giả RedNote: ' : 'Kênh: ');
-    const defaultAuthor = isVk ? 'Tác giả VK' : (isXhs ? 'Tác giả RedNote' : 'Tác giả Douyin');
+    const isWeibo = data.platform === 'weibo';
+    const authorPrefix = isVk ? 'Tác giả VK: ' : (isXhs ? 'Tác giả RedNote: ' : (isWeibo ? 'Tác giả Weibo: ' : 'Kênh: '));
+    const defaultAuthor = isVk ? 'Tác giả VK' : (isXhs ? 'Tác giả RedNote' : (isWeibo ? 'Tác giả Weibo' : 'Tác giả Douyin'));
     metaAuthorName.innerText = authorPrefix + (data.author || defaultAuthor);
     metaPostTime.innerText = '🕒 Đăng lúc: ' + (data.createTime || 'Hôm nay');
     metaBadgeType.innerText = isVk
       ? (data.type === 'video' ? 'VK Video' : 'VK Ảnh / Post')
       : isXhs
       ? (data.type === 'video' ? 'RedNote Video' : 'RedNote Ảnh / Note')
+      : isWeibo
+      ? (data.type === 'video' ? 'Weibo Video' : 'Weibo Ảnh / Post')
       : (data.type === 'note' ? '图集 / Note' : 'Video');
     if (data.avatar) {
       metaAuthorAvatar.src = data.avatar;
@@ -729,6 +738,65 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
     btnCopyEnglish.innerText = '✅ Đã copy!';
     setTimeout(() => { btnCopyEnglish.innerText = 'Copy'; }, 1500);
   });
+
+  // ===== STRIP / REMOVE HASHTAGS & ALL WEIBO TRACES =====
+  function stripHashtags(text) {
+    if (!text || typeof text !== 'string') return '';
+    let cleaned = text;
+    // 1. Weibo hashtags: #topic#
+    cleaned = cleaned.replace(/#[^#\r\n]{1,80}#/g, ' ');
+    // 2. Standard hashtags: #tag
+    cleaned = cleaned.replace(/#[a-zA-Z0-9_\u4e00-\u9fa5\p{L}\p{N}_-]+/gu, ' ');
+    // 3. Weibo sticker/emoticon codes: [doge], [心], [偷笑], [微风], [赞]...
+    cleaned = cleaned.replace(/\[[\u4e00-\u9fa5a-zA-Z0-9_]{1,15}\]/g, '');
+    // 4. Weibo user mentions: @username
+    cleaned = cleaned.replace(/@[\u4e00-\u9fa5a-zA-Z0-9_-]{1,30}/g, '');
+    // 5. Weibo video signatures
+    cleaned = cleaned.replace(/L.*?的微博视频/g, '');
+    cleaned = cleaned.replace(/.*?的微博视频/g, '');
+    cleaned = cleaned.replace(/微博视频/g, '');
+    // 6. Special Weibo links & boilerplate
+    cleaned = cleaned
+      .replace(/https?:\/\/t\.cn\/[a-zA-Z0-9]+/g, '')
+      .replace(/O网页链接/g, '')
+      .replace(/网页链接/g, '')
+      .replace(/【[^】]{1,80}超话】/g, '')
+      .replace(/\s*…?\s*全文\s*$/g, '')
+      .replace(/[ \t]+/g, ' ')
+      .replace(/\n\s*\n/g, '\n\n')
+      .trim();
+    return cleaned;
+  }
+
+  if (btnStripHashtagsZh) {
+    btnStripHashtagsZh.addEventListener('click', () => {
+      const originalVal = originalCaptionEl.value;
+      const cleaned = stripHashtags(originalVal);
+      originalCaptionEl.value = cleaned;
+      if (currentMediaData) {
+        currentMediaData.desc = cleaned;
+        chrome.storage.local.set({ currentExtractedData: currentMediaData });
+      }
+      const prevText = btnStripHashtagsZh.innerText;
+      btnStripHashtagsZh.innerText = '✓ Đã xóa!';
+      setTimeout(() => { btnStripHashtagsZh.innerText = prevText; }, 1500);
+    });
+  }
+
+  if (btnStripHashtagsEn) {
+    btnStripHashtagsEn.addEventListener('click', () => {
+      const originalVal = englishCaptionEl.value;
+      const cleaned = stripHashtags(originalVal);
+      englishCaptionEl.value = cleaned;
+      if (currentMediaData) {
+        currentMediaData.englishCaption = cleaned;
+        chrome.storage.local.set({ currentExtractedData: currentMediaData });
+      }
+      const prevText = btnStripHashtagsEn.innerText;
+      btnStripHashtagsEn.innerText = '✓ Đã xóa!';
+      setTimeout(() => { btnStripHashtagsEn.innerText = prevText; }, 1500);
+    });
+  }
 
   // ===== HELPER: CONVERT BLOB TO CLEAN JPG VIA CANVAS =====
   // Strips all EXIF, tracking headers & Douyin watermark metadata

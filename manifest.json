@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Douyin to Facebook Auto-Pilot",
   "version": "1.1.0",
-  "description": "Lấy ảnh HD, video không watermark từ Douyin, VK, RedNote (Xiaohongshu), dịch & viết lại bằng DeepSeek AI và chuẩn bị đăng lên Facebook Fanpage.",
+  "description": "Lấy ảnh HD, video không watermark từ Douyin, VK, RedNote (Xiaohongshu), Weibo (lọc xóa hashtag), dịch & viết lại bằng DeepSeek AI và chuẩn bị đăng lên Facebook Fanpage.",
   "permissions": [
     "storage",
     "downloads",
@@ -39,6 +39,11 @@
     "*://*.rednote.com/*",
     "*://*.rednotecdn.com/*",
     "*://ci.xiaohongshu.com/*",
+    "*://*.weibo.com/*",
+    "*://*.weibo.cn/*",
+    "*://*.sinaimg.cn/*",
+    "*://*.weibocdn.com/*",
+    "*://t.cn/*",
     "https://api.deepseek.com/*",
     "https://graph.facebook.com/*"
   ],
@@ -88,6 +93,15 @@
       "js": ["content/xhs_content.js"],
       "css": ["content/content.css"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "*://*.weibo.com/*",
+        "*://*.weibo.cn/*"
+      ],
+      "js": ["content/weibo_content.js"],
+      "css": ["content/content.css"],
+      "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
@@ -120,6 +134,17 @@
         "*://*.xiaohongshu.com/*",
         "*://*.xhslink.com/*",
         "*://*.rednote.com/*"
+      ]
+    },
+    {
+      "resources": [
+        "content/weibo_inject.js",
+        "icons/*",
+        "lib/*"
+      ],
+      "matches": [
+        "*://*.weibo.com/*",
+        "*://*.weibo.cn/*"
       ]
     }
   ],

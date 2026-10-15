@@ -203,5 +203,97 @@
       "urlFilter": "*rednotecdn.com*",
       "resourceTypes": ["xmlhttprequest", "image", "other", "sub_frame"]
     }
+  },
+  {
+    "id": 11,
+    "priority": 1,
+    "action": {
+      "type": "modifyHeaders",
+      "requestHeaders": [
+        {
+          "header": "Referer",
+          "operation": "set",
+          "value": "https://weibo.com/"
+        },
+        {
+          "header": "User-Agent",
+          "operation": "set",
+          "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+      ]
+    },
+    "condition": {
+      "urlFilter": "*sinaimg.cn*",
+      "resourceTypes": ["xmlhttprequest", "image", "other", "sub_frame"]
+    }
+  },
+  {
+    "id": 12,
+    "priority": 1,
+    "action": {
+      "type": "modifyHeaders",
+      "requestHeaders": [
+        {
+          "header": "Referer",
+          "operation": "set",
+          "value": "https://weibo.com/"
+        },
+        {
+          "header": "User-Agent",
+          "operation": "set",
+          "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+      ]
+    },
+    "condition": {
+      "urlFilter": "*weibocdn.com*",
+      "resourceTypes": ["xmlhttprequest", "image", "other", "sub_frame"]
+    }
+  },
+  {
+    "id": 13,
+    "priority": 1,
+    "action": {
+      "type": "modifyHeaders",
+      "requestHeaders": [
+        {
+          "header": "Referer",
+          "operation": "set",
+          "value": "https://weibo.com/"
+        },
+        {
+          "header": "User-Agent",
+          "operation": "set",
+          "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+      ]
+    },
+    "condition": {
+      "urlFilter": "*weibo.com*",
+      "resourceTypes": ["xmlhttprequest", "image", "other", "sub_frame"]
+    }
+  },
+  {
+    "id": 14,
+    "priority": 1,
+    "action": {
+      "type": "modifyHeaders",
+      "requestHeaders": [
+        {
+          "header": "Referer",
+          "operation": "set",
+          "value": "https://weibo.com/"
+        },
+        {
+          "header": "User-Agent",
+          "operation": "set",
+          "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+      ]
+    },
+    "condition": {
+      "urlFilter": "*weibo.cn*",
+      "resourceTypes": ["xmlhttprequest", "image", "other", "sub_frame"]
+    }
   }
 ]
