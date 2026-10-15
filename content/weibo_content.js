@@ -14,6 +14,33 @@
     console.warn('[Weibo→FB] Error injecting MAIN script:', e);
   }
 
+  // Track user click/touch on Weibo cards to know the exact post being browsed
+  let lastUserClickedCard = null;
+  let lastUserClickedPid = '';
+  let lastUserClickedId = '';
+
+  function trackUserInteraction(target) {
+    if (!target || typeof target.closest !== 'function') return;
+    const card = target.closest('.card-wrap, .card, article, [class*="Feed_wrap"], [class*="wbpro-feed-content"]');
+    if (card) {
+      lastUserClickedCard = card;
+      const link = card.querySelector('a[href*="/detail/"], a[href*="/status/"], a[href*="weibo.com/"]');
+      if (link && link.href) {
+        const m = link.href.match(/(?:detail|status)\/([a-zA-Z0-9]+)/i);
+        if (m && m[1]) lastUserClickedId = m[1];
+      }
+      const img = target.tagName === 'IMG' ? target : target.querySelector('img');
+      if (img) {
+        const src = img.currentSrc || img.src || img.getAttribute('src') || '';
+        const m = src.match(/(?:sinaimg\.cn|weibocdn\.com)\/[^/]+\/([a-zA-Z0-9_-]+)/i);
+        if (m && m[1]) lastUserClickedPid = m[1].split('.')[0];
+      }
+    }
+  }
+
+  document.addEventListener('click', e => trackUserInteraction(e.target), true);
+  document.addEventListener('touchstart', e => trackUserInteraction(e.target), true);
+
   // ===== 2. Helper: Clean up & upgrade image URL to Original / Large HD =====
   function cleanDomImageUrl(rawUrl) {
     if (!rawUrl || typeof rawUrl !== 'string') return '';
@@ -87,6 +114,7 @@
     // Strategy 1: User is viewing an image in PhotoSwipe Lightbox (e.g. on m.weibo.cn)
     if (isPhotoSwipeActive) {
       const pswpImages = [];
+      const pswpPids = [];
       const pswpImgs = document.querySelectorAll('.pswp img, .pswp__img, .pswp__zoom-wrap img');
       for (const img of pswpImgs) {
         const src = img.currentSrc || img.src || img.getAttribute('src') || img.getAttribute('data-src') || '';
@@ -94,32 +122,34 @@
         if (clean && !pswpImages.includes(clean)) {
           pswpImages.push(clean);
         }
+        const m = src.match(/(?:sinaimg\.cn|weibocdn\.com)\/[^/]+\/([a-zA-Z0-9_-]+)/i);
+        if (m) {
+          const pid = m[1].split('.')[0];
+          if (pid && !pswpPids.includes(pid)) pswpPids.push(pid);
+        }
       }
 
-      // Try to find the active image PID
-      let activePid = '';
-      if (pswpImages.length > 0) {
-        const m = pswpImages[0].match(/(?:sinaimg\.cn|weibocdn\.com)\/[^/]+\/([a-zA-Z0-9_-]+)/i);
-        if (m) activePid = m[1].split('.')[0];
+      if (lastUserClickedPid && !pswpPids.includes(lastUserClickedPid)) {
+        pswpPids.unshift(lastUserClickedPid);
       }
 
       // Find the card on the page that owns this image
       const allCards = Array.from(document.querySelectorAll('.card-wrap, .card.card9, [class*="card_wrap"], article, [class*="Feed_wrap"]'));
       let targetCard = null;
 
-      if (activePid) {
-        targetCard = allCards.find(c => c.innerHTML.includes(activePid));
+      // A. Match card containing any of the PhotoSwipe image PIDs
+      if (pswpPids.length > 0) {
+        targetCard = allCards.find(c => pswpPids.some(pid => c.innerHTML.includes(pid)));
       }
 
-      if (!targetCard && window.location.hash) {
-        const gidMatch = window.location.hash.match(/[#&]gid=(\d+)/);
-        if (gidMatch) {
-          const gid = parseInt(gidMatch[1], 10);
-          const postCards = allCards.filter(c => c.querySelector('.weibo-text, .m-img-box, .weibo-media, .text, [class*="text"]'));
-          if (gid > 0 && postCards[gid - 1]) {
-            targetCard = postCards[gid - 1];
-          }
-        }
+      // B. Fallback to last clicked card
+      if (!targetCard && lastUserClickedCard && allCards.includes(lastUserClickedCard)) {
+        targetCard = lastUserClickedCard;
+      }
+
+      // C. Fallback to card by last clicked ID
+      if (!targetCard && lastUserClickedId) {
+        targetCard = allCards.find(c => c.innerHTML.includes(lastUserClickedId));
       }
 
       if (targetCard) {
@@ -437,6 +467,20 @@
 
   // ===== 8. Master Extractor =====
   async function extractWeiboData() {
+    const pswpEl = document.querySelector('.pswp');
+    const isPhotoSwipeActive = Boolean(
+      (pswpEl && (pswpEl.classList.contains('pswp--open') || pswpEl.getAttribute('aria-hidden') === 'false')) ||
+      (window.location.hash && window.location.hash.includes('gid='))
+    );
+
+    // If PhotoSwipe is active, prioritize DOM extraction to guarantee exact card match
+    if (isPhotoSwipeActive) {
+      const domResult = extractFromDom();
+      if (domResult && domResult.success && domResult.images.length > 0) {
+        return domResult;
+      }
+    }
+
     // Priority 1: Main World extraction (reads cached API responses & fetches status JSON)
     try {
       const mainData = await requestMainWorldData();

@@ -93,7 +93,6 @@
         if (obj.id) window.__WEIBO_POST_CACHE__[String(obj.id)] = obj;
         if (obj.idstr) window.__WEIBO_POST_CACHE__[String(obj.idstr)] = obj;
         if (obj.mblogid) window.__WEIBO_POST_CACHE__[String(obj.mblogid)] = obj;
-        window.__WEIBO_LAST_ACTIVE_POST_ID__ = key;
       }
     }
 
@@ -214,9 +213,12 @@
     console.warn('[Weibo→FB] Interceptor error:', err);
   }
 
-  // Track hover/click on Weibo post elements to know which post user is viewing
-  document.addEventListener('mouseover', (e) => {
-    const postEl = e.target.closest('article, [class*="Feed_wrap"], [class*="wbpro-feed-content"], .card-wrap, .card.card9');
+  // Track hover/click/touch on Weibo post elements to know which post user is viewing
+  window.__WEIBO_LAST_CLICKED_PID__ = '';
+
+  function handleInteraction(target) {
+    if (!target || typeof target.closest !== 'function') return;
+    const postEl = target.closest('article, [class*="Feed_wrap"], [class*="wbpro-feed-content"], .card-wrap, .card.card9, .card');
     if (postEl) {
       const link = postEl.querySelector('a[href*="/detail/"], a[href*="/status/"], a[href^="/"]');
       if (link && link.href) {
@@ -226,8 +228,20 @@
           window.__WEIBO_LAST_ACTIVE_POST_ID__ = m[1];
         }
       }
+      const img = target.tagName === 'IMG' ? target : target.querySelector('img');
+      if (img) {
+        const src = img.currentSrc || img.src || img.getAttribute('src') || '';
+        const m = src.match(/(?:sinaimg\.cn|weibocdn\.com)\/[^/]+\/([a-zA-Z0-9_-]+)/i);
+        if (m && m[1]) {
+          window.__WEIBO_LAST_CLICKED_PID__ = m[1].split('.')[0];
+        }
+      }
     }
-  }, { passive: true });
+  }
+
+  document.addEventListener('click', (e) => handleInteraction(e.target), true);
+  document.addEventListener('touchstart', (e) => handleInteraction(e.target), true);
+  document.addEventListener('mouseover', (e) => handleInteraction(e.target), { passive: true });
 
   // ===== 5. Helper: Format Weibo Created Time =====
   function formatWeiboDate(dateStr) {
@@ -363,28 +377,47 @@
   async function extractCurrentWeiboData() {
     const currentUrl = window.location.href;
 
-    // Check if PhotoSwipe is active: try to match post by image PID in PhotoSwipe
+    const isPhotoSwipeActive = Boolean(
+      document.querySelector('.pswp.pswp--open, .pswp:not([aria-hidden="true"])') ||
+      (window.location.hash && window.location.hash.includes('gid='))
+    );
+
+    // Check if PhotoSwipe is active: scan ALL slides and images for PIDs
     try {
-      const activeImg = document.querySelector('.pswp.pswp--open img.pswp__img, .pswp img.pswp__img, .pswp__zoom-wrap img');
-      if (activeImg) {
-        const src = activeImg.currentSrc || activeImg.src || '';
+      const pswpImgs = Array.from(document.querySelectorAll('.pswp img, .pswp__img, .pswp__zoom-wrap img'));
+      const foundPids = [];
+      for (const img of pswpImgs) {
+        const src = img.currentSrc || img.src || img.getAttribute('src') || img.getAttribute('data-src') || '';
         const m = src.match(/(?:sinaimg\.cn|weibocdn\.com)\/[^/]+\/([a-zA-Z0-9_-]+)/i);
         if (m) {
           const pid = m[1].split('.')[0];
-          // Look in cache for post containing this PID
-          for (const key of Object.keys(window.__WEIBO_POST_CACHE__)) {
-            const p = window.__WEIBO_POST_CACHE__[key];
-            if (p) {
-              const hasPid = (p.pic_ids && p.pic_ids.includes(pid)) ||
-                             (p.pics && p.pics.some(x => x.pid === pid || (x.url && x.url.includes(pid)))) ||
-                             (p.pic_infos && p.pic_infos[pid]);
-              if (hasPid) {
-                const res = buildResultFromWeiboPost(p);
-                if (res && res.success) return res;
-              }
-            }
+          if (pid && !foundPids.includes(pid)) foundPids.push(pid);
+        }
+      }
+      if (window.__WEIBO_LAST_CLICKED_PID__ && !foundPids.includes(window.__WEIBO_LAST_CLICKED_PID__)) {
+        foundPids.push(window.__WEIBO_LAST_CLICKED_PID__);
+      }
+
+      for (const pid of foundPids) {
+        for (const key of Object.keys(window.__WEIBO_POST_CACHE__)) {
+          const p = window.__WEIBO_POST_CACHE__[key];
+          if (!p) continue;
+          const hasPid = (Array.isArray(p.pic_ids) && p.pic_ids.includes(pid)) ||
+                         (Array.isArray(p.pics) && p.pics.some(x => x.pid === pid || (x.url && x.url.includes(pid)))) ||
+                         (p.pic_infos && p.pic_infos[pid]);
+          if (hasPid) {
+            const res = buildResultFromWeiboPost(p);
+            if (res && res.success) return res;
           }
         }
+      }
+
+      if (isPhotoSwipeActive) {
+        return {
+          success: false,
+          platform: 'weibo',
+          error: 'PhotoSwipe đang mở, chuyển sang quét card trên DOM.'
+        };
       }
     } catch (e) {}
 
