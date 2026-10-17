@@ -801,6 +801,8 @@ body {
 }
 .btn-compact:hover { background: rgba(255,255,255,.12); }
 .btn-compact-primary { color: #93c5fd; border-color: rgba(96,165,250,.28); }
+.btn-compact-crop { color: #fdba74; border-color: rgba(251,146,60,.45); background: rgba(251,146,60,.12); font-weight: 700; }
+.btn-compact-crop:hover:not(:disabled) { background: rgba(251,146,60,.25); border-color: rgba(251,146,60,.75); color: #fff; }
 .btn-compact-danger { color: #fca5a5; border-color: rgba(239,68,68,.35); }
 .btn-compact-danger:hover { background: rgba(239,68,68,.16); }
 .btn-compact:disabled { opacity: .4; cursor: not-allowed; }

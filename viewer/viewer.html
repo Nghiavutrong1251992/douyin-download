@@ -218,7 +218,7 @@
                 <button id="btn-rename-selected-images" class="btn-compact btn-compact-primary" disabled>✎ Đổi tên</button>
                 <button id="btn-rotate-left-images" class="btn-compact btn-compact-primary" disabled>↶ Xoay trái</button>
                 <button id="btn-rotate-right-images" class="btn-compact btn-compact-primary" disabled>↷ Xoay phải</button>
-                <button id="btn-crop-watermark-images" class="btn-compact btn-compact-primary" disabled title="Cắt bỏ viền mép dưới ảnh nơi chứa logo và ID tài khoản Weibo">✂️ Cắt watermark mép dưới</button>
+                <button id="btn-crop-watermark-images" class="btn-compact btn-compact-crop" disabled title="Cắt bỏ viền mép dưới ảnh nơi chứa logo và ID tài khoản Weibo">✂️ Cắt watermark mép dưới</button>
                 <button id="btn-copy-selected-to-folder" class="btn-compact btn-compact-emerald" disabled title="Mặc định copy nhanh tất cả ảnh đã chọn ra 'folder anh tam thoi' và tự động mở thư mục Explorer để xử lý tiếp">⚡ Xuất ra folder ảnh tạm thời</button>
                 <button id="btn-open-folder-location" class="btn-compact btn-compact-primary" disabled title="Mở vị trí ảnh đã chọn trong thư mục máy tính">📂 Mở vị trí file</button>
                 <button id="btn-optimize-selected-images" class="btn-compact btn-compact-primary" disabled>◫ Tạo ảnh xem nhẹ</button>
@@ -305,6 +305,7 @@
                 <button id="btn-global-batch-tag" class="btn-compact btn-compact-primary" disabled>🏷 Gắn tag</button>
                 <button id="btn-global-batch-rot-left" class="btn-compact btn-compact-primary" disabled>↶ Xoay trái</button>
                 <button id="btn-global-batch-rot-right" class="btn-compact btn-compact-primary" disabled>↷ Xoay phải</button>
+                <button id="btn-global-batch-crop-watermark" class="btn-compact btn-compact-crop" disabled title="Cắt bỏ viền mép dưới ảnh nơi chứa logo và ID tài khoản Weibo">✂️ Cắt watermark mép dưới</button>
                 <button id="btn-global-batch-copy-to-folder" class="btn-compact btn-compact-emerald" disabled title="Mặc định copy nhanh tất cả ảnh đã chọn ra 'folder anh tam thoi' và tự động mở thư mục Explorer để xử lý tiếp">⚡ Xuất ra folder ảnh tạm thời</button>
                 <button id="btn-global-batch-open-location" class="btn-compact btn-compact-primary" disabled title="Mở vị trí ảnh đã chọn trong thư mục máy tính">📂 Mở vị trí file</button>
                 <button id="btn-global-batch-zip" class="btn-compact btn-compact-emerald" disabled>📦 Tải ZIP</button>
@@ -341,6 +342,7 @@
         <span id="lightbox-filename" class="lightbox-filename"></span>
         <div class="lightbox-actions">
           <button id="lightbox-fav-btn" class="btn-lightbox btn-lightbox-star">⭐ Yêu thích</button>
+          <button id="lightbox-crop-btn" class="btn-lightbox" title="Cắt bỏ viền mép dưới ảnh này để xóa logo/ID Weibo">✂️ Cắt watermark mép dưới</button>
           <button id="lightbox-copy-btn" class="btn-lightbox">📋 Copy ảnh</button>
           <button id="lightbox-open-location-btn" class="btn-lightbox" title="Mở vị trí ảnh trong thư mục máy tính">📂 Mở vị trí file</button>
           <a id="lightbox-dl-btn" href="#" download="" class="btn-lightbox">⬇ Tải JPG này</a>
@@ -359,6 +361,7 @@
     <button data-action="rename-folder">📁 Đổi tên thư mục bài viết</button>
     <button data-action="rotate-left">↶ Xoay trái</button>
     <button data-action="rotate-right">↷ Xoay phải</button>
+    <button data-action="crop-watermark">✂️ Cắt watermark mép dưới</button>
     <button data-action="copy-folder">⚡ Xuất ra folder ảnh tạm thời</button>
     <button data-action="open-location">📂 Mở vị trí file trong thư mục</button>
     <button data-action="copy">📋 Copy ảnh</button>

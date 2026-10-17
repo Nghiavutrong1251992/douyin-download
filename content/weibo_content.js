@@ -14,33 +14,6 @@
     console.warn('[Weibo→FB] Error injecting MAIN script:', e);
   }
 
-  // Track user click/touch on Weibo cards to know the exact post being browsed
-  let lastUserClickedCard = null;
-  let lastUserClickedPid = '';
-  let lastUserClickedId = '';
-
-  function trackUserInteraction(target) {
-    if (!target || typeof target.closest !== 'function') return;
-    const card = target.closest('.card-wrap, .card, article, [class*="Feed_wrap"], [class*="wbpro-feed-content"]');
-    if (card) {
-      lastUserClickedCard = card;
-      const link = card.querySelector('a[href*="/detail/"], a[href*="/status/"], a[href*="weibo.com/"]');
-      if (link && link.href) {
-        const m = link.href.match(/(?:detail|status)\/([a-zA-Z0-9]+)/i);
-        if (m && m[1]) lastUserClickedId = m[1];
-      }
-      const img = target.tagName === 'IMG' ? target : target.querySelector('img');
-      if (img) {
-        const src = img.currentSrc || img.src || img.getAttribute('src') || '';
-        const m = src.match(/(?:sinaimg\.cn|weibocdn\.com)\/[^/]+\/([a-zA-Z0-9_-]+)/i);
-        if (m && m[1]) lastUserClickedPid = m[1].split('.')[0];
-      }
-    }
-  }
-
-  document.addEventListener('click', e => trackUserInteraction(e.target), true);
-  document.addEventListener('touchstart', e => trackUserInteraction(e.target), true);
-
   // ===== 2. Helper: Clean up & upgrade image URL to Original / Large HD =====
   function cleanDomImageUrl(rawUrl) {
     if (!rawUrl || typeof rawUrl !== 'string') return '';
@@ -51,8 +24,8 @@
 
     // Filter out thumbnails, icons, avatars, emojis, base64 transparent gif
     if (u.includes('avatar') || u.includes('icon') || u.includes('emoji') ||
-        u.includes('data:image') || u.includes('userhead') || u.includes('face_') ||
-        u.includes('default_avatar')) {
+      u.includes('data:image') || u.includes('userhead') || u.includes('face_') ||
+      u.includes('default_avatar')) {
       return '';
     }
 
@@ -66,42 +39,65 @@
 
   // ===== 3. Helper: Strip Hashtags from DOM Text =====
   function stripHashtagsFromText(rawText) {
-    if (!rawText) return { clean: '', hashtags: [] };
+    if (!rawText || typeof rawText !== 'string') return { clean: '', hashtags: [] };
 
+    const raw = rawText;
     const hashtags = [];
-    // Extract #topic#
-    const topicMatches = rawText.match(/#[^#\r\n]{1,80}#/g) || [];
-    topicMatches.forEach(t => {
-      const tag = t.trim();
-      if (!hashtags.includes(tag)) hashtags.push(tag);
+
+    // Match Weibo dual-hash topics: #topic#, ＃topic＃, #topic＃, ＃topic#
+    const topicMatches = raw.match(/[#＃﹟][^\s#＃﹟\r\n](?:[^#＃﹟\r\n]{0,98}[^\s#＃﹟\r\n])?[#＃﹟]/gu) || [];
+    topicMatches.forEach(tag => {
+      const cleanTag = tag.replace(/^[#＃﹟]+|[#＃﹟]+$/g, '').trim();
+      if (cleanTag && !hashtags.includes(cleanTag)) hashtags.push(cleanTag);
     });
 
-    // Extract #tag
-    const singleMatches = rawText.match(/#[a-zA-Z0-9_\u4e00-\u9fa5]{1,50}/g) || [];
-    singleMatches.forEach(t => {
-      const tag = t.trim();
-      if (!hashtags.includes(tag)) hashtags.push(tag);
+    // Match single hashtags: #tag, ＃tag
+    const singleHashMatches = raw.match(/[#＃﹟][\p{L}\p{N}_·・]+(?:[\.\-][\p{L}\p{N}_·・]+)*/gu) || [];
+    singleHashMatches.forEach(tag => {
+      const cleanTag = tag.replace(/^[#＃﹟]+/, '').trim();
+      if (cleanTag && !hashtags.includes(cleanTag)) hashtags.push(cleanTag);
     });
 
-    // Remove hashtags and boilerplate
-    let clean = rawText
-      .replace(/#[^#\r\n]{1,80}#/g, ' ')
-      .replace(/#[a-zA-Z0-9_\u4e00-\u9fa5]{1,50}/g, ' ')
-      .replace(/\[[\u4e00-\u9fa5a-zA-Z0-9_]{1,15}\]/g, '')
-      .replace(/@[\u4e00-\u9fa5a-zA-Z0-9_-]{1,30}/g, '')
-      .replace(/L.*?的微博视频/g, '')
-      .replace(/.*?的微博视频/g, '')
-      .replace(/微博视频/g, '')
+    let cleaned = raw;
+
+    // 1. Remove brackets wrapping hashtags: 【#tag#】, 【＃tag＃】, [#tag#], (#tag#), （＃tag＃）
+    cleaned = cleaned.replace(/[【\[(（]\s*[#＃﹟][^#＃﹟\r\n]{1,100}[#＃﹟]\s*[】\])）]/gu, ' ');
+    cleaned = cleaned.replace(/[【\[(（]\s*[#＃﹟][^#＃﹟\r\n【】\[\]()（）]{1,100}\s*[】\])）]/gu, ' ');
+
+    // 2. Dual-hash topics (Weibo, XHS, etc.): #topic#, ＃topic＃, #topic＃, ＃topic#
+    cleaned = cleaned.replace(/[#＃﹟][^\s#＃﹟\r\n](?:[^#＃﹟\r\n]{0,98}[^\s#＃﹟\r\n])?[#＃﹟]/gu, ' ');
+
+    // 3. Super Topics (超话) & Weibo topic tags
+    cleaned = cleaned.replace(/[【\[(（]\s*[^【\[(（\r\n\s]{1,50}超话\s*[】\])）]/gu, ' ');
+    cleaned = cleaned.replace(/(?:^|[\s，,、。！？!?])[\p{L}\p{N}_·・\-]{1,20}超话(?=\s|$|[，,、。！？!?])/gu, ' ');
+    cleaned = cleaned.replace(/\[(?:超话|话题|地点)\]/gu, '');
+
+    // 4. Single-hash tags: #tag, ＃tag (Chinese, Unicode letters, numbers, hyphens, middle dot ·)
+    cleaned = cleaned.replace(/[#＃﹟][\p{L}\p{N}_·・]+(?:[\.\-][\p{L}\p{N}_·・]+)*/gu, ' ');
+
+    // 5. Stickers/Emoticons: [心], [doge], [偷笑], [微风]...
+    cleaned = cleaned.replace(/\[[\p{L}\p{N}_]{1,20}\]/gu, '');
+
+    // 6. User mentions: @username or ＠username
+    cleaned = cleaned.replace(/[@＠][\p{L}\p{N}_-]+/gu, '');
+
+    // 7. Video signatures (safe without greedy wiping)
+    cleaned = cleaned.replace(/(?:L\s*)?[^\r\n\s]{1,30}的微博视频/gu, '');
+    cleaned = cleaned.replace(/(?:L\s*)?微博视频/gu, '');
+
+    // 8. Special links & boilerplate
+    cleaned = cleaned
       .replace(/https?:\/\/t\.cn\/[a-zA-Z0-9]+/g, '')
-      .replace(/O网页链接/g, '')
+      .replace(/https?:\/\/[^\s]+/g, '')
+      .replace(/O\s*网页链接/g, '')
       .replace(/网页链接/g, '')
-      .replace(/【[^】]{1,80}超话】/g, '')
-      .replace(/\s*…?\s*全文\s*$/g, '')
+      .replace(/\s*(?:\.{2,}|…)?\s*(?:展开|全文|展开全文|展开全文c)\s*$/gu, '')
+      .replace(/^[ \t]*[2📍📌]\s*[\p{L}\p{N}_·・\.\-]+\s*$/gmu, '')
       .replace(/[ \t]+/g, ' ')
       .replace(/\n\s*\n/g, '\n\n')
       .trim();
 
-    return { clean, hashtags };
+    return { clean: cleaned, hashtags: hashtags };
   }
 
   // ===== 4. DOM-based extraction (Handles weibo.com, m.weibo.cn & PhotoSwipe) =====
@@ -114,7 +110,6 @@
     // Strategy 1: User is viewing an image in PhotoSwipe Lightbox (e.g. on m.weibo.cn)
     if (isPhotoSwipeActive) {
       const pswpImages = [];
-      const pswpPids = [];
       const pswpImgs = document.querySelectorAll('.pswp img, .pswp__img, .pswp__zoom-wrap img');
       for (const img of pswpImgs) {
         const src = img.currentSrc || img.src || img.getAttribute('src') || img.getAttribute('data-src') || '';
@@ -122,34 +117,32 @@
         if (clean && !pswpImages.includes(clean)) {
           pswpImages.push(clean);
         }
-        const m = src.match(/(?:sinaimg\.cn|weibocdn\.com)\/[^/]+\/([a-zA-Z0-9_-]+)/i);
-        if (m) {
-          const pid = m[1].split('.')[0];
-          if (pid && !pswpPids.includes(pid)) pswpPids.push(pid);
-        }
       }
 
-      if (lastUserClickedPid && !pswpPids.includes(lastUserClickedPid)) {
-        pswpPids.unshift(lastUserClickedPid);
+      // Try to find the active image PID
+      let activePid = '';
+      if (pswpImages.length > 0) {
+        const m = pswpImages[0].match(/(?:sinaimg\.cn|weibocdn\.com)\/[^/]+\/([a-zA-Z0-9_-]+)/i);
+        if (m) activePid = m[1].split('.')[0];
       }
 
       // Find the card on the page that owns this image
       const allCards = Array.from(document.querySelectorAll('.card-wrap, .card.card9, [class*="card_wrap"], article, [class*="Feed_wrap"]'));
       let targetCard = null;
 
-      // A. Match card containing any of the PhotoSwipe image PIDs
-      if (pswpPids.length > 0) {
-        targetCard = allCards.find(c => pswpPids.some(pid => c.innerHTML.includes(pid)));
+      if (activePid) {
+        targetCard = allCards.find(c => c.innerHTML.includes(activePid));
       }
 
-      // B. Fallback to last clicked card
-      if (!targetCard && lastUserClickedCard && allCards.includes(lastUserClickedCard)) {
-        targetCard = lastUserClickedCard;
-      }
-
-      // C. Fallback to card by last clicked ID
-      if (!targetCard && lastUserClickedId) {
-        targetCard = allCards.find(c => c.innerHTML.includes(lastUserClickedId));
+      if (!targetCard && window.location.hash) {
+        const gidMatch = window.location.hash.match(/[#&]gid=(\d+)/);
+        if (gidMatch) {
+          const gid = parseInt(gidMatch[1], 10);
+          const postCards = allCards.filter(c => c.querySelector('.weibo-text, .m-img-box, .weibo-media, .text, [class*="text"]'));
+          if (gid > 0 && postCards[gid - 1]) {
+            targetCard = postCards[gid - 1];
+          }
+        }
       }
 
       if (targetCard) {
@@ -320,7 +313,7 @@
     const dateText = dateEl ? dateEl.innerText.trim() : 'Gần đây';
 
     const idMatch = window.location.href.match(/(?:detail|status)\/([a-zA-Z0-9]+)/i) ||
-                    window.location.href.match(/weibo\.(?:com|cn)\/\d+\/([a-zA-Z0-9]+)/i);
+      window.location.href.match(/weibo\.(?:com|cn)\/\d+\/([a-zA-Z0-9]+)/i);
     const itemId = idMatch ? idMatch[1] : ('wb_' + Date.now());
 
     return {
@@ -390,7 +383,7 @@
       btn.style.opacity = '0.7';
       btn.innerHTML = '<span>⏳ Đang quét ảnh Weibo...</span>';
 
-      chrome.runtime.sendMessage({ type: 'OPEN_SIDE_PANEL' }).catch(() => {});
+      chrome.runtime.sendMessage({ type: 'OPEN_SIDE_PANEL' }).catch(() => { });
 
       try {
         const data = await extractWeiboData();
@@ -467,20 +460,6 @@
 
   // ===== 8. Master Extractor =====
   async function extractWeiboData() {
-    const pswpEl = document.querySelector('.pswp');
-    const isPhotoSwipeActive = Boolean(
-      (pswpEl && (pswpEl.classList.contains('pswp--open') || pswpEl.getAttribute('aria-hidden') === 'false')) ||
-      (window.location.hash && window.location.hash.includes('gid='))
-    );
-
-    // If PhotoSwipe is active, prioritize DOM extraction to guarantee exact card match
-    if (isPhotoSwipeActive) {
-      const domResult = extractFromDom();
-      if (domResult && domResult.success && domResult.images.length > 0) {
-        return domResult;
-      }
-    }
-
     // Priority 1: Main World extraction (reads cached API responses & fetches status JSON)
     try {
       const mainData = await requestMainWorldData();

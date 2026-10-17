@@ -71,6 +71,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const lightboxBody = document.getElementById('lightbox-body');
   const lightboxCopyBtn = document.getElementById('lightbox-copy-btn');
   const lightboxFavBtn = document.getElementById('lightbox-fav-btn');
+  const lightboxCropBtn = document.getElementById('lightbox-crop-btn');
   const lightboxOpenLocationBtn = document.getElementById('lightbox-open-location-btn');
   const lightboxFilename = document.getElementById('lightbox-filename');
   const imageContextMenu = document.getElementById('image-context-menu');
@@ -114,6 +115,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const btnGlobalBatchTag = document.getElementById('btn-global-batch-tag');
   const btnGlobalBatchRotLeft = document.getElementById('btn-global-batch-rot-left');
   const btnGlobalBatchRotRight = document.getElementById('btn-global-batch-rot-right');
+  const btnGlobalBatchCropWatermark = document.getElementById('btn-global-batch-crop-watermark');
   const btnGlobalBatchCopyToFolder = document.getElementById('btn-global-batch-copy-to-folder');
   const btnGlobalBatchOpenLocation = document.getElementById('btn-global-batch-open-location');
   const btnGlobalBatchZip = document.getElementById('btn-global-batch-zip');
@@ -422,22 +424,45 @@ document.addEventListener('DOMContentLoaded', async () => {
   function stripHashtags(text) {
     if (!text || typeof text !== 'string') return '';
     let cleaned = text;
-    cleaned = cleaned.replace(/#[^#\r\n]{1,80}#/g, ' ');
-    cleaned = cleaned.replace(/#[a-zA-Z0-9_\u4e00-\u9fa5\p{L}\p{N}_-]+/gu, ' ');
-    cleaned = cleaned.replace(/\[[\u4e00-\u9fa5a-zA-Z0-9_]{1,15}\]/g, '');
-    cleaned = cleaned.replace(/@[\u4e00-\u9fa5a-zA-Z0-9_-]{1,30}/g, '');
-    cleaned = cleaned.replace(/L.*?的微博视频/g, '');
-    cleaned = cleaned.replace(/.*?的微博视频/g, '');
-    cleaned = cleaned.replace(/微博视频/g, '');
+
+    // 1. Remove brackets wrapping hashtags: 【#tag#】, 【＃tag＃】, [#tag#], (#tag#), （＃tag＃）
+    cleaned = cleaned.replace(/[【\[(（]\s*[#＃﹟][^#＃﹟\r\n]{1,100}[#＃﹟]\s*[】\])）]/gu, ' ');
+    cleaned = cleaned.replace(/[【\[(（]\s*[#＃﹟][^#＃﹟\r\n【】\[\]()（）]{1,100}\s*[】\])）]/gu, ' ');
+
+    // 2. Dual-hash topics (Weibo, XHS, etc.): #topic#, ＃topic＃, #topic＃, ＃topic#
+    // Require no whitespace at opening/closing hash to avoid swallowing `#tag1 #tag2` as one topic
+    cleaned = cleaned.replace(/[#＃﹟][^\s#＃﹟\r\n](?:[^#＃﹟\r\n]{0,98}[^\s#＃﹟\r\n])?[#＃﹟]/gu, ' ');
+
+    // 3. Super Topics (超话) & Weibo topic tags
+    cleaned = cleaned.replace(/[【\[(（]\s*[^【\[(（\r\n\s]{1,50}超话\s*[】\])）]/gu, ' ');
+    cleaned = cleaned.replace(/(?:^|[\s，,、。！？!?])[\p{L}\p{N}_·・\-]{1,20}超话(?=\s|$|[，,、。！？!?])/gu, ' ');
+    cleaned = cleaned.replace(/\[(?:超话|话题|地点)\]/gu, '');
+
+    // 4. Single-hash tags: #tag, ＃tag (Chinese, Unicode letters, numbers, hyphens, middle dot ·, not trailing punctuation)
+    cleaned = cleaned.replace(/[#＃﹟][\p{L}\p{N}_·・]+(?:[\.\-][\p{L}\p{N}_·・]+)*/gu, ' ');
+
+    // 5. Stickers/Emoticons: [心], [doge], [偷笑], [微风]...
+    cleaned = cleaned.replace(/\[[\p{L}\p{N}_]{1,20}\]/gu, '');
+
+    // 6. User mentions: @username or ＠username
+    cleaned = cleaned.replace(/[@＠][\p{L}\p{N}_-]+/gu, '');
+
+    // 7. Video signatures (safe without greedy wiping)
+    cleaned = cleaned.replace(/(?:L\s*)?[^\r\n\s]{1,30}的微博视频/gu, '');
+    cleaned = cleaned.replace(/(?:L\s*)?微博视频/gu, '');
+
+    // 8. Special links & boilerplate
     cleaned = cleaned
       .replace(/https?:\/\/t\.cn\/[a-zA-Z0-9]+/g, '')
-      .replace(/O网页链接/g, '')
+      .replace(/https?:\/\/[^\s]+/g, '')
+      .replace(/O\s*网页链接/g, '')
       .replace(/网页链接/g, '')
-      .replace(/【[^】]{1,80}超话】/g, '')
-      .replace(/\s*…?\s*全文\s*$/g, '')
+      .replace(/\s*(?:\.{2,}|…)?\s*(?:展开|全文|展开全文|展开全文c)\s*$/gu, '')
+      .replace(/^[ \t]*[2📍📌]\s*[\p{L}\p{N}_·・\.\-]+\s*$/gmu, '')
       .replace(/[ \t]+/g, ' ')
       .replace(/\n\s*\n/g, '\n\n')
       .trim();
+
     return cleaned;
   }
 
@@ -690,9 +715,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function parseImageTags(value) {
-    const hashtagMatches = String(value || '').match(/#[\p{L}\p{N}_-]+/gu) || [];
+    const hashtagMatches = String(value || '').match(/[#＃﹟][\p{L}\p{N}_·・-]+/gu) || [];
     if (hashtagMatches.length > 0) {
-      return [...new Set(hashtagMatches.map(tag => tag.slice(1).toLocaleLowerCase('vi-VN')))];
+      return [...new Set(hashtagMatches.map(tag => tag.replace(/^[#＃﹟]+/, '').toLocaleLowerCase('vi-VN')))];
     }
 
     // Also accept a simple comma/newline list when the pasted text has no #.
@@ -1206,6 +1231,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         await rotateSelectedGlobalImages(-90);
       } else if (action === 'rotate-right') {
         await rotateSelectedGlobalImages(90);
+      } else if (action === 'crop-watermark') {
+        await cropSelectedGlobalImagesBottom();
       } else if (action === 'open-location') {
         if (selectedGlobalKeys.size > 1) {
           await openSelectedImagesInFolder();
@@ -1239,6 +1266,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     else if (action === 'rename') btnRenameSelectedImages.click();
     else if (action === 'rotate-left') btnRotateLeftImages.click();
     else if (action === 'rotate-right') btnRotateRightImages.click();
+    else if (action === 'crop-watermark') btnCropWatermarkImages.click();
     else if (action === 'open-location') {
       await openSelectedImagesInFolder();
     }
@@ -1506,6 +1534,67 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!postId) return;
     await toggleImageFavorite(postId, imgIdx);
     updateLightboxContent();
+  });
+
+  lightboxCropBtn?.addEventListener('click', async () => {
+    const list = currentLightboxList || activePost?.images || [];
+    if (!list.length) return;
+    const item = list[activeLightboxIndex];
+    const postId = item.postId || activePost?.id;
+    const imgIdx = item.imageIndex !== undefined ? item.imageIndex : activeLightboxIndex;
+    if (!postId) return;
+
+    const input = prompt('✂️ Cắt mép dưới ảnh này để xóa logo/ID Weibo.\nNhập % chiều cao muốn cắt mép dưới (khuyên dùng 4% - 6%):', '5');
+    if (input === null) return;
+    const percent = parseFloat(input);
+    if (isNaN(percent) || percent <= 0 || percent >= 50) {
+      alert('Vui lòng nhập số % hợp lệ từ 1 đến 50.');
+      return;
+    }
+
+    try {
+      showToast('Đang cắt watermark ảnh...');
+      const fullPost = await DouyinDB.getPost(postId);
+      if (!fullPost || !fullPost.images || !fullPost.images[imgIdx]) {
+        throw new Error('Không tìm thấy dữ liệu ảnh');
+      }
+      const img = fullPost.images[imgIdx];
+      img.dataUrl = await cropBottomImageDataUrl(img.dataUrl, percent, 0.96);
+      img.thumbnailDataUrl = await createPreviewImage(img.dataUrl, 0.68, 480);
+      fullPost.thumbUrl = fullPost.images[0]?.thumbnailDataUrl || fullPost.images[0]?.dataUrl || '';
+      await DouyinDB.savePost(fullPost);
+
+      if (item.image) {
+        item.image.dataUrl = img.dataUrl;
+        item.image.thumbnailDataUrl = img.thumbnailDataUrl;
+      }
+      item.dataUrl = img.dataUrl;
+      item.thumbnailDataUrl = img.thumbnailDataUrl;
+
+      if (activePost && activePost.id === postId) {
+        activePost = fullPost;
+        renderImagesGrid(activePost.images || []);
+      }
+
+      const summary = allPosts.find(p => p.id === postId);
+      if (summary) {
+        summary.thumbUrl = fullPost.thumbUrl;
+        summary.images = (fullPost.images || []).map(im => ({
+          filename: im.filename,
+          tags: im.tags,
+          favorite: im.favorite,
+          thumbnailDataUrl: im.thumbnailDataUrl
+        }));
+      }
+
+      renderSidebarList();
+      if (currentAppTab === 'photos') renderGlobalPhotos();
+
+      updateLightboxContent();
+      showToast(`✂️ Đã cắt ${percent}% mép dưới và xóa sạch watermark!`);
+    } catch (err) {
+      showToast(`❌ Lỗi cắt watermark: ${err.message}`);
+    }
   });
 
   lightboxCloseBtn.addEventListener('click', window.closeLightbox);
@@ -2378,6 +2467,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (btnGlobalBatchTag) btnGlobalBatchTag.disabled = count === 0;
     if (btnGlobalBatchRotLeft) btnGlobalBatchRotLeft.disabled = count === 0;
     if (btnGlobalBatchRotRight) btnGlobalBatchRotRight.disabled = count === 0;
+    if (btnGlobalBatchCropWatermark) btnGlobalBatchCropWatermark.disabled = count === 0;
     if (btnGlobalBatchCopyToFolder) {
       btnGlobalBatchCopyToFolder.disabled = count === 0;
       btnGlobalBatchCopyToFolder.innerText = count ? `⚡ Xuất folder ảnh tạm (${count})` : '⚡ Xuất folder ảnh tạm';
@@ -2489,8 +2579,73 @@ document.addEventListener('DOMContentLoaded', async () => {
     await openSelectedImagesInFolder();
   }
 
+  // Cắt watermark mép dưới cho ảnh trong kho toàn cục
+  async function cropSelectedGlobalImagesBottom() {
+    if (!selectedGlobalKeys.size) return;
+    const count = selectedGlobalKeys.size;
+    const input = prompt(`✂️ Cắt mép dưới để xóa logo/ID Weibo cho ${count} ảnh đã chọn.\nNhập % chiều cao muốn cắt mép dưới (khuyên dùng 4% - 6%):`, '5');
+    if (input === null) return;
+    const percent = parseFloat(input);
+    if (isNaN(percent) || percent <= 0 || percent >= 50) {
+      alert('Vui lòng nhập số % hợp lệ từ 1 đến 50.');
+      return;
+    }
+    if (btnGlobalBatchCropWatermark) btnGlobalBatchCropWatermark.disabled = true;
+    showToast(`Đang cắt watermark cho ${count} ảnh...`);
+    try {
+      const affectedPostMap = new Map();
+      let currentIdx = 0;
+      for (const key of selectedGlobalKeys) {
+        currentIdx++;
+        showToast(`Đang cắt watermark ảnh ${currentIdx}/${count}...`);
+        const [postId, idxStr] = key.split('__');
+        const idx = Number(idxStr);
+        if (!affectedPostMap.has(postId)) {
+          const full = await DouyinDB.getPost(postId);
+          if (full) affectedPostMap.set(postId, full);
+        }
+        const fullPost = affectedPostMap.get(postId);
+        if (fullPost && fullPost.images && fullPost.images[idx]) {
+          const img = fullPost.images[idx];
+          img.dataUrl = await cropBottomImageDataUrl(img.dataUrl, percent, 0.96);
+          img.thumbnailDataUrl = await createPreviewImage(img.dataUrl, 0.68, 480);
+        }
+      }
+
+      for (const [pid, fullPost] of affectedPostMap.entries()) {
+        fullPost.thumbUrl = fullPost.images[0]?.thumbnailDataUrl || fullPost.images[0]?.dataUrl || '';
+        await DouyinDB.savePost(fullPost);
+
+        const summary = allPosts.find(item => item.id === pid);
+        if (summary) {
+          summary.thumbUrl = fullPost.thumbUrl;
+          summary.images = (fullPost.images || []).map(im => ({
+            filename: im.filename,
+            tags: im.tags,
+            favorite: im.favorite,
+            thumbnailDataUrl: im.thumbnailDataUrl
+          }));
+        }
+      }
+
+      if (activePost && affectedPostMap.has(activePost.id)) {
+        activePost = affectedPostMap.get(activePost.id);
+        renderImagesGrid(activePost.images || []);
+      }
+      renderSidebarList();
+      renderGlobalPhotoGrid();
+      showToast(`✂️ Đã cắt ${percent}% mép dưới cho ${count} ảnh (xóa sạch watermark)!`);
+    } catch (error) {
+      showToast(`❌ Không thể cắt watermark: ${error.message}`);
+    } finally {
+      if (btnGlobalBatchCropWatermark) btnGlobalBatchCropWatermark.disabled = false;
+      syncGlobalBatchToolbar();
+    }
+  }
+
   btnGlobalBatchRotLeft?.addEventListener('click', () => rotateSelectedGlobalImages(-90));
   btnGlobalBatchRotRight?.addEventListener('click', () => rotateSelectedGlobalImages(90));
+  btnGlobalBatchCropWatermark?.addEventListener('click', cropSelectedGlobalImagesBottom);
   btnGlobalBatchOpenLocation?.addEventListener('click', openSelectedGlobalImagesInFolder);
   btnGlobalBatchCopyToFolder?.addEventListener('click', copySelectedImagesToNewFolder);
   btnCopySelectedToFolder?.addEventListener('click', copySelectedImagesToNewFolder);

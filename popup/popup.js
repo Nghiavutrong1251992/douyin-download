@@ -743,28 +743,45 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
   function stripHashtags(text) {
     if (!text || typeof text !== 'string') return '';
     let cleaned = text;
-    // 1. Weibo hashtags: #topic#
-    cleaned = cleaned.replace(/#[^#\r\n]{1,80}#/g, ' ');
-    // 2. Standard hashtags: #tag
-    cleaned = cleaned.replace(/#[a-zA-Z0-9_\u4e00-\u9fa5\p{L}\p{N}_-]+/gu, ' ');
-    // 3. Weibo sticker/emoticon codes: [doge], [心], [偷笑], [微风], [赞]...
-    cleaned = cleaned.replace(/\[[\u4e00-\u9fa5a-zA-Z0-9_]{1,15}\]/g, '');
-    // 4. Weibo user mentions: @username
-    cleaned = cleaned.replace(/@[\u4e00-\u9fa5a-zA-Z0-9_-]{1,30}/g, '');
-    // 5. Weibo video signatures
-    cleaned = cleaned.replace(/L.*?的微博视频/g, '');
-    cleaned = cleaned.replace(/.*?的微博视频/g, '');
-    cleaned = cleaned.replace(/微博视频/g, '');
-    // 6. Special Weibo links & boilerplate
+
+    // 1. Remove brackets wrapping hashtags: 【#tag#】, 【＃tag＃】, [#tag#], (#tag#), （＃tag＃）
+    cleaned = cleaned.replace(/[【\[(（]\s*[#＃﹟][^#＃﹟\r\n]{1,100}[#＃﹟]\s*[】\])）]/gu, ' ');
+    cleaned = cleaned.replace(/[【\[(（]\s*[#＃﹟][^#＃﹟\r\n【】\[\]()（）]{1,100}\s*[】\])）]/gu, ' ');
+
+    // 2. Dual-hash topics (Weibo, XHS, etc.): #topic#, ＃topic＃, #topic＃, ＃topic#
+    // Require no whitespace at opening/closing hash to avoid swallowing `#tag1 #tag2` as one topic
+    cleaned = cleaned.replace(/[#＃﹟][^\s#＃﹟\r\n](?:[^#＃﹟\r\n]{0,98}[^\s#＃﹟\r\n])?[#＃﹟]/gu, ' ');
+
+    // 3. Super Topics (超话) & Weibo topic tags
+    cleaned = cleaned.replace(/[【\[(（]\s*[^【\[(（\r\n\s]{1,50}超话\s*[】\])）]/gu, ' ');
+    cleaned = cleaned.replace(/(?:^|[\s，,、。！？!?])[\p{L}\p{N}_·・\-]{1,20}超话(?=\s|$|[，,、。！？!?])/gu, ' ');
+    cleaned = cleaned.replace(/\[(?:超话|话题|地点)\]/gu, '');
+
+    // 4. Single-hash tags: #tag, ＃tag (Chinese, Unicode letters, numbers, hyphens, middle dot ·, not trailing punctuation)
+    cleaned = cleaned.replace(/[#＃﹟][\p{L}\p{N}_·・]+(?:[\.\-][\p{L}\p{N}_·・]+)*/gu, ' ');
+
+    // 5. Stickers/Emoticons: [心], [doge], [偷笑], [微风]...
+    cleaned = cleaned.replace(/\[[\p{L}\p{N}_]{1,20}\]/gu, '');
+
+    // 6. User mentions: @username or ＠username
+    cleaned = cleaned.replace(/[@＠][\p{L}\p{N}_-]+/gu, '');
+
+    // 7. Video signatures (safe without greedy wiping)
+    cleaned = cleaned.replace(/(?:L\s*)?[^\r\n\s]{1,30}的微博视频/gu, '');
+    cleaned = cleaned.replace(/(?:L\s*)?微博视频/gu, '');
+
+    // 8. Special links & boilerplate
     cleaned = cleaned
       .replace(/https?:\/\/t\.cn\/[a-zA-Z0-9]+/g, '')
-      .replace(/O网页链接/g, '')
+      .replace(/https?:\/\/[^\s]+/g, '')
+      .replace(/O\s*网页链接/g, '')
       .replace(/网页链接/g, '')
-      .replace(/【[^】]{1,80}超话】/g, '')
-      .replace(/\s*…?\s*全文\s*$/g, '')
+      .replace(/\s*(?:\.{2,}|…)?\s*(?:展开|全文|展开全文|展开全文c)\s*$/gu, '')
+      .replace(/^[ \t]*[2📍📌]\s*[\p{L}\p{N}_·・\.\-]+\s*$/gmu, '')
       .replace(/[ \t]+/g, ' ')
       .replace(/\n\s*\n/g, '\n\n')
       .trim();
+
     return cleaned;
   }
 
