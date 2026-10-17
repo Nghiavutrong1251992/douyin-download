@@ -212,12 +212,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           const detected = detectProvinceFromText(p.desc + ' ' + (p.englishCaption || ''));
           if (detected) {
             p.province = detected;
-            DouyinDB.getPost(p.id).then(full => {
-              if (full) {
-                full.province = detected;
-                DouyinDB.savePost(full).catch(() => {});
-              }
-            }).catch(() => {});
+            DouyinDB.updateProvince(p.id, detected).catch(() => {});
           }
         }
       });
@@ -1108,9 +1103,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     updateBasketBar();
     showToast(folderSync === 'synced'
       ? `🗑️ Đã xóa ${indexes.length} ảnh khỏi kho và thư mục trên máy`
-      : folderSync === 'failed'
-        ? `⚠️ Đã xóa ${indexes.length} ảnh khỏi kho; chưa xóa được file trong thư mục máy`
-        : `🗑️ Đã xóa ${indexes.length} ảnh khỏi kho offline`);
+      : folderSync === 'no-permission'
+        ? `🗑️ Đã xóa ${indexes.length} ảnh khỏi kho; (Chưa cấp quyền ghi thư mục máy)`
+        : folderSync === 'failed'
+          ? `⚠️ Đã xóa ${indexes.length} ảnh khỏi kho; chưa xóa được file trong thư mục máy`
+          : `🗑️ Đã xóa ${indexes.length} ảnh khỏi kho offline`);
   });
 
   function getSelectedImageIndexes() {
@@ -1438,19 +1435,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderSidebarList();
     showToast(folderSync === 'synced'
       ? '🗑️ Đã xóa ảnh khỏi kho và thư mục trên máy'
-      : folderSync === 'failed'
-        ? '⚠️ Đã xóa khỏi kho; chưa xóa được file trong thư mục máy'
-        : '🗑️ Đã xóa ảnh khỏi bài viết offline');
+      : folderSync === 'no-permission'
+        ? '🗑️ Đã xóa khỏi kho; (Chưa cấp quyền ghi thư mục máy)'
+        : folderSync === 'failed'
+          ? '⚠️ Đã xóa khỏi kho; chưa xóa được file trong thư mục máy'
+          : '🗑️ Đã xóa ảnh khỏi bài viết offline');
   }
 
   async function syncPostFolderAfterImageDeletion() {
     try {
       const directoryInfo = await DouyinFiles.getDirectoryInfo();
       if (!directoryInfo.configured) return 'not-configured';
-      await DouyinFiles.savePost(activePost, { requestPermission: true });
-      return 'synced';
+      if (directoryInfo.permission !== 'granted') return 'no-permission';
+      const path = await DouyinFiles.savePost(activePost, { requestPermission: false });
+      return path ? 'synced' : 'failed';
     } catch (error) {
-      console.warn('Không thể đồng bộ thao tác xóa vào thư mục offline:', error);
+      const errorMsg = error?.name ? `${error.name}: ${error.message || '(không có chi tiết)'}` : (error?.message || String(error));
+      console.warn('Không thể đồng bộ thao tác xóa vào thư mục offline:', errorMsg);
       return 'failed';
     }
   }
@@ -1796,6 +1797,51 @@ document.addEventListener('DOMContentLoaded', async () => {
       postViewEl.classList.add('hidden');
     }
   });
+
+  // ===== SCAN DISK DIRECTORY =====
+  const btnViewerScanDisk = document.getElementById('btn-viewer-scan-disk');
+  if (btnViewerScanDisk) {
+    btnViewerScanDisk.addEventListener('click', async () => {
+      try {
+        let handle = await DouyinFiles.getDirectoryHandle(true);
+        if (!handle) {
+          handle = await DouyinFiles.chooseDirectory();
+        }
+        if (!handle) return;
+
+        btnViewerScanDisk.disabled = true;
+        btnViewerScanDisk.innerText = '⏳ Đang quét...';
+        showToast(`⏳ Bắt đầu quét thư mục ${handle.name}...`, 3000);
+
+        let restoredPosts = 0;
+        let restoredImages = 0;
+
+        await DouyinFiles.importAllStreaming({
+          requestPermission: true,
+          onProgress: ({ current, total, folderName }) => {
+            btnViewerScanDisk.innerText = `⏳ ${current}/${total}...`;
+            showToast(`⏳ Đang đọc ${current}/${total}: ${folderName.slice(0, 25)}...`, 2000);
+          },
+          onPost: async (post, current, total) => {
+            btnViewerScanDisk.innerText = `⏳ Lưu ${current}/${total}...`;
+            restoredImages += (post.images || []).length;
+            await DouyinDB.savePost(post);
+            restoredPosts++;
+          }
+        });
+
+        await refreshPostsList();
+        showToast(`✅ Đã nạp thành công ${restoredPosts} bài viết (${restoredImages} ảnh)!`, 5000);
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          showToast(`❌ Lỗi quét thư mục: ${err.message}`, 5000);
+        }
+      } finally {
+        btnViewerScanDisk.disabled = false;
+        btnViewerScanDisk.innerText = '📁 Quét thư mục máy tính';
+      }
+    });
+  }
 
   // ===== SEARCH & FILTERS =====
   searchInput.addEventListener('input', () => {

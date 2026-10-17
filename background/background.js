@@ -371,7 +371,11 @@ async function backgroundProcessAndSavePost(payload) {
 
   chrome.runtime.sendMessage({
     type: 'BACKGROUND_DOWNLOAD_COMPLETE',
-    payload: { postRecord }
+    payload: {
+      postId: postRecord.id,
+      author: authorName,
+      count: cleanImages.length
+    }
   }).catch(() => {});
 
   if (chrome.notifications?.create) {

@@ -344,31 +344,30 @@ Keep it authentic and exciting. Output ONLY the ready-to-publish post.`;
 
   btnRestoreOfflineFolder.addEventListener('click', async () => {
     btnRestoreOfflineFolder.disabled = true;
-    offlineFolderStatus.innerText = '⏳ Đang đọc và khôi phục kho từ thư mục...';
+    offlineFolderStatus.innerText = '⏳ Đang quét thư mục...';
     try {
-      // Call the picker immediately from the click gesture after reinstall,
-      // because Chrome only permits directory selection during user action.
       if (!DouyinFiles._handle) await DouyinFiles.chooseDirectory();
-      const posts = await DouyinFiles.importAll({ requestPermission: true });
-      if (!posts.length) throw new Error('Không tìm thấy bài hợp lệ có metadata.json.');
-
+      let restoredPosts = 0;
       let restoredImages = 0;
-      for (let postIndex = 0; postIndex < posts.length; postIndex++) {
-        const post = posts[postIndex];
-        offlineFolderStatus.innerText = `⏳ Đang khôi phục bài ${postIndex + 1}/${posts.length}...`;
-        for (const image of post.images) {
-          const blob = await (await fetch(image.dataUrl)).blob();
-          const previewBlob = await convertBlobToCleanJpg(blob, 0.68, 480);
-          image.thumbnailDataUrl = await blobToDataUrl(previewBlob);
-          restoredImages++;
+
+      const result = await DouyinFiles.importAllStreaming({
+        requestPermission: true,
+        onProgress: ({ current, total, folderName }) => {
+          offlineFolderStatus.innerText = `⏳ Đang đọc ${current}/${total}: ${folderName.slice(0, 18)}...`;
+        },
+        onPost: async (post, current, total) => {
+          offlineFolderStatus.innerText = `⏳ Đang lưu ${current}/${total}: ${(post.author || 'bài viết').slice(0, 15)}...`;
+          restoredImages += (post.images || []).length;
+          await DouyinDB.savePost(post);
+          restoredPosts++;
         }
-        post.thumbUrl = post.images[0]?.thumbnailDataUrl || post.images[0]?.dataUrl || '';
-        await DouyinDB.savePost(post);
-      }
+      });
+
+      if (!restoredPosts) throw new Error('Không tìm thấy bài viết hoặc ảnh hợp lệ trong thư mục.');
 
       libraryCount.innerText = String(await DouyinDB.getPostCount());
       const info = await DouyinFiles.getDirectoryInfo();
-      offlineFolderStatus.innerText = `✅ Đã khôi phục ${posts.length} bài, ${restoredImages} ảnh từ ${info.name}`;
+      offlineFolderStatus.innerText = `✅ Đã khôi phục ${restoredPosts} bài, ${restoredImages} ảnh từ ${info.name}`;
     } catch (error) {
       if (error.name !== 'AbortError') offlineFolderStatus.innerText = `❌ ${error.message}`;
     } finally {

@@ -138,6 +138,32 @@ body {
   gap: 12px;
 }
 
+.btn-topbar-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-color);
+  padding: 5px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-topbar-action:hover {
+  background: rgba(254, 44, 85, 0.15);
+  border-color: var(--accent-pink);
+  color: #fff;
+}
+
+.btn-topbar-action:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .topbar-chip {
   display: inline-flex;
   align-items: center;

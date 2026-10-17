@@ -107,6 +107,14 @@
   "web_accessible_resources": [
     {
       "resources": [
+        "viewer/*",
+        "icons/*",
+        "lib/*"
+      ],
+      "matches": ["<all_urls>"]
+    },
+    {
+      "resources": [
         "content/inject_main.js",
         "icons/*",
         "lib/*"
